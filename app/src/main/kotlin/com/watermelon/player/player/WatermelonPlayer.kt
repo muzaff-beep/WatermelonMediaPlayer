@@ -4,19 +4,16 @@ import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import com.watermelon.player.player.loadcontrol.SimpleLoadControl
 
 @OptIn(UnstableApi::class)
 class WatermelonPlayer(private val context: Context) {
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(context))
-        .setLoadControl(SimpleLoadControl())
         .build()
 
     fun setSource(uri: Uri) {
