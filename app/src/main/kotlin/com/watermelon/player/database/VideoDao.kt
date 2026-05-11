@@ -23,12 +23,15 @@ interface VideoDao {
     @Query("DELETE FROM videos")
     suspend fun deleteAll()
 
-@Query("SELECT DISTINCT folder_path FROM videos ORDER BY folder_path ASC")
-fun getAllFolders(): Flow<List<String>>
-
-@Query("SELECT * FROM videos WHERE folder_path = :folderPath")
-fun getVideosInFolder(folderPath: String): Flow<List<VideoEntity>>
-
     @Query("UPDATE videos SET last_position = :position WHERE id = :videoId")
     suspend fun updateLastPosition(videoId: Long, position: Long)
+
+    @Query("SELECT DISTINCT folder_path FROM videos ORDER BY folder_path ASC")
+    fun getAllFolders(): Flow<List<String>>
+
+    @Query("SELECT * FROM videos WHERE folder_path = :folderPath")
+    fun getVideosInFolder(folderPath: String): Flow<List<VideoEntity>>
+
+    @Query("SELECT * FROM videos WHERE id = :id")
+    suspend fun getVideoById(id: Long): VideoEntity?
 }
