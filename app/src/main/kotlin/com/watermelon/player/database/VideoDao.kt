@@ -1,3 +1,11 @@
+package com.watermelon.player.database
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
+
 @Dao
 interface VideoDao {
     @Query("""
@@ -5,9 +13,16 @@ interface VideoDao {
         WHERE folder_path NOT IN (
             SELECT folderPath FROM folder_visibility WHERE isVisible = 0
         )
+        ORDER BY date_added DESC
     """)
-    fun getAllVisibleVideos(): Flow<List<VideoEntity>>
+    fun getVisibleVideos(): Flow<List<VideoEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(videos: List<VideoEntity>)
+
+    @Query("DELETE FROM videos")
+    suspend fun deleteAll()
+
+    @Query("UPDATE videos SET last_position = :position WHERE id = :videoId")
+    suspend fun updateLastPosition(videoId: Long, position: Long)
 }
