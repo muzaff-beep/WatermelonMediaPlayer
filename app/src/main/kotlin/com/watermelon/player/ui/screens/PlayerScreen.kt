@@ -102,7 +102,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             SubtitleOverlay(
                 cues = subtitleManager.getCurrentCues(currentPosition),
                 fontSize = 20f,
-                fontFamily = FontFamily.Default,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -142,7 +141,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    // PiP button (API 26+)
                     TextButton(onClick = { PiPManager.enterPiP(activity) }) {
                         Text("PiP", color = Color.White)
                     }
@@ -150,6 +148,7 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             }
         }
 
+        // Toggle controls visibility
         IconButton(
             onClick = { showControls = !showControls },
             modifier = Modifier
@@ -179,7 +178,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
     }
 }
 
-// Helper to get Activity from Context
 fun Context.findActivity(): Activity? {
     var context = this
     while (context is ContextWrapper) {
