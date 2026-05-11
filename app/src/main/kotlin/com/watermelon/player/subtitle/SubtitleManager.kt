@@ -27,7 +27,7 @@ class SubtitleManager {
         return cues.filter { adjusted in it.startMs..it.endMs }
     }
 
-    fun hasSubtitles(): Boolean = cues.isNotEmpty()
+    fun hasSubtitles() = cues.isNotEmpty()
 
     fun clear() {
         cues = emptyList()
