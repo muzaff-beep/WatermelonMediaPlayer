@@ -13,21 +13,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.watermelon.player.database.VideoEntity
 import com.watermelon.player.ui.viewmodel.LibraryViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
-    onVideoClick: (Uri, String) -> Unit,   // uri, title
+    onVideoClick: (Uri, String) -> Unit,
     onNavigateToFolders: () -> Unit,
     viewModel: LibraryViewModel = viewModel()
 ) {
@@ -96,7 +92,6 @@ fun VideoCard(video: VideoEntity, onClick: () -> Unit) {
         )
     ) {
         Column {
-            // Thumbnail placeholder (real thumbnail from MediaStore can be added later)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
