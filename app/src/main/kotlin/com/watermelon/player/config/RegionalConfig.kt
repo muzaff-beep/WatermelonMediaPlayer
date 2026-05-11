@@ -17,7 +17,7 @@ object RegionalConfig {
     
     // --- BUSINESS LOGIC ---
     // Universal trial period for the singular Watermelon Player.
-    const val TRIAL_DAYS = 7
+    const val TRIAL_DAYS = Int.MAX_VALUE
     // Global flag for premium features (Video-to-MP3, etc.)
     const val PREMIUM_ENABLED = true
 
