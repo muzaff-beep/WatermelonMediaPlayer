@@ -1,82 +1,78 @@
 package com.watermelon.player.storage
 
-import android.content.ContentUris
 import android.content.Context
 import android.provider.MediaStore
+import com.watermelon.player.database.MediaDatabase
 import com.watermelon.player.database.VideoEntity
+import java.io.File
 
-/**
- * [DATA LAYER: UnifiedStorageAccess]
- * * ENHANCEMENT: Scoped Storage Compatibility.
- * This handles the complexity of Android 11+ MediaStore queries while 
- * integrating our "Folder Visibility" database filters.
- */
 class UnifiedStorageAccess(private val context: Context) {
 
-    /**
-     * [FUNCTION: fetchLocalVideos]
-     * * FIX: Avoids the "Slow Vault" problem. 
-     * Instead of encrypting files to hide them (which is slow), we filter 
-     * them out during the scan phase using our Exclusion List.
-     * * @param excludedFolders A list of folder paths the user has toggled "OFF".
-     */
-    fun fetchLocalVideos(excludedFolders: List<String>): List<VideoEntity> {
-        val videoList = mutableListOf<VideoEntity>()
-        
-        // Define which file data we need from the phone.
+    private val db = MediaDatabase.getDatabase(context)
+    private val videoDao = db.videoDao()
+    private val folderVisibilityDao = db.folderVisibilityDao()
+
+    suspend fun scanAndInsertVideos() {
+        val videos = mutableListOf<VideoEntity>()
+
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.DATA,          // deprecated but still works on older APIs
             MediaStore.Video.Media.DURATION,
-            MediaStore.Video.Media.SIZE,
-            MediaStore.Video.Media.DATA // The absolute disk path.
+            MediaStore.Video.Media.RELATIVE_PATH
         )
 
-        // Query the Android MediaStore Database.
-        val query = context.contentResolver.query(
+        context.contentResolver.query(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
             projection,
-            null,
-            null,
-            "${MediaStore.Video.Media.DATE_ADDED} DESC" // Show newest first.
-        )
-
-        query?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-            val pathColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
+            null, null, null
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
+            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+            val relativePathCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.RELATIVE_PATH)
 
             while (cursor.moveToNext()) {
-                val path = cursor.getString(pathColumn)
-                
-                // --- INTEGRATED HIDE/SHOW FILTER ---
-                // We check if the current file's path contains any string 
-                // from our "Invisible" folders list.
-                val isExcluded = excludedFolders.any { path.contains(it) }
-                
-                // If it's in a hidden folder, we skip adding it to the UI.
-                if (isExcluded) continue
+                val data = cursor.getString(dataCol) ?: continue
+                val file = File(data)
+                val folderPath = file.parent ?: relativePathCol.let { 
+                    cursor.getString(it) ?: "unknown"
+                }
 
-                val id = cursor.getLong(idColumn)
-                val name = cursor.getString(nameColumn)
-                val duration = cursor.getLong(durationColumn)
-                
-                // Construct the "Playable URI" for Media3.
-                val contentUri = ContentUris.withAppendedId(
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id
+                // Basic filter: skip files < 1 second (likely corrupt)
+                val duration = cursor.getLong(durationCol)
+                if (duration < 1000) continue
+
+                val uri = android.content.ContentUris.withAppendedId(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    cursor.getLong(idCol)
+                ).toString()
+
+                videos.add(
+                    VideoEntity(
+                        title = cursor.getString(nameCol) ?: "Unknown",
+                        uri = uri,
+                        duration = duration,
+                        folderPath = folderPath,
+                        hash = ""   // compute later
+                    )
                 )
-
-                videoList.add(VideoEntity(
-                    id = id,
-                    title = name,
-                    uri = contentUri.toString(),
-                    duration = duration,
-                    folderPath = path.substringBeforeLast("/") // Get the parent folder.
-                ))
             }
         }
-        return videoList // Returns only "Visible" media to the Home Screen.
-    }
-}
 
+        videoDao.deleteAll()
+        videoDao.insertAll(videos)
+    }
+
+    suspend fun getVisibleVideos() = videoDao.getVisibleVideos()
+
+    suspend fun setFolderVisibility(folderPath: String, visible: Boolean) {
+        folderVisibilityDao.setVisibility(
+            com.watermelon.player.database.FolderVisibility(folderPath, visible)
+        )
+    }
+
+    suspend fun getHiddenFolders() = folderVisibilityDao.getHiddenFolders()
+}
