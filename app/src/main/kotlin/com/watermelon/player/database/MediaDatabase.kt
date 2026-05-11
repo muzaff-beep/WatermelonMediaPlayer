@@ -1,8 +1,10 @@
-/**
- * TODO: Implement functionality for this component
- * 
- * This is a placeholder file created during project structure initialization.
- * Part of Watermelon MediaPlayer v1.4 (MENA Single Edition)
- * 
- * Package: com.watermelon.player.database
- */
+// database/MediaDatabase.kt
+@Database(
+    entities = [VideoEntity::class, FolderVisibility::class],
+    version = 1,
+    exportSchema = true
+)
+abstract class MediaDatabase : RoomDatabase() {
+    abstract fun videoDao(): VideoDao
+    abstract fun folderVisibilityDao(): FolderVisibilityDao
+}
