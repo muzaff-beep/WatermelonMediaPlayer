@@ -1,6 +1,8 @@
 package com.watermelon.player.ui.screens
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -21,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
+import com.watermelon.player.player.MediaSessionManager
+import com.watermelon.player.player.PiPManager
 import com.watermelon.player.player.WatermelonPlayer
 import com.watermelon.player.subtitle.SubtitleManager
 import com.watermelon.player.subtitle.SubtitleOverlay
@@ -30,24 +34,33 @@ import java.io.File
 @Composable
 fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
     val context = LocalContext.current
+    val activity = context.findActivity() ?: return
     val player = remember { WatermelonPlayer(context) }
     val subtitleManager = remember { SubtitleManager() }
+    val mediaSession = remember { MediaSessionManager(context, player) }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableStateOf(0L) }
     var duration by remember { mutableStateOf(0L) }
-    var offset by remember { mutableStateOf(0L) }
     var showControls by remember { mutableStateOf(true) }
+    var showOffsetDialog by remember { mutableStateOf(false) }
+    var offset by remember { mutableStateOf(0L) }
 
-    // Subtitle loading
+    DisposableEffect(Unit) {
+        onDispose {
+            player.release()
+            mediaSession.release()
+        }
+    }
+
     LaunchedEffect(subtitleFile) {
         subtitleFile?.let { subtitleManager.loadFromFile(it) }
     }
 
-    // Playback state listener
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                this@PlayerScreen.isPlaying = isPlaying
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+                mediaSession.updatePlaybackState(playing, player.getCurrentPosition(), player.getDuration())
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
@@ -56,13 +69,9 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             }
         }
         player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
+        onDispose { player.removeListener(listener) }
     }
 
-    // Periodic position update
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             currentPosition = player.getCurrentPosition()
@@ -70,13 +79,11 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
         }
     }
 
-    // Load video
     LaunchedEffect(videoUri) {
         player.setSource(videoUri)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Video Surface
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -91,7 +98,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Subtitle overlay
         if (subtitleManager.hasSubtitles()) {
             SubtitleOverlay(
                 cues = subtitleManager.getCurrentCues(currentPosition),
@@ -101,7 +107,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             )
         }
 
-        // Controls
         if (showControls) {
             Column(
                 modifier = Modifier
@@ -110,18 +115,13 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.Bottom
             ) {
-                // Seek bar
                 Slider(
                     value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
                     onValueChange = { player.seekTo((it * duration).toLong()) },
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Play/Pause
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = { if (isPlaying) player.pause() else player.play() },
                         modifier = Modifier.focusable()
@@ -135,19 +135,21 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // Subtitle Offset
                     if (subtitleManager.hasSubtitles()) {
-                        TextButton(
-                            onClick = { /* open offset dialog */ }
-                        ) {
-                            Text("Offset: ${offset}ms", color = Color.White)
+                        TextButton(onClick = { showOffsetDialog = true }) {
+                            Text("Offset", color = Color.White)
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    // PiP button (API 26+)
+                    TextButton(onClick = { PiPManager.enterPiP(activity) }) {
+                        Text("PiP", color = Color.White)
                     }
                 }
             }
         }
 
-        // Toggle controls visibility
         IconButton(
             onClick = { showControls = !showControls },
             modifier = Modifier
@@ -163,4 +165,26 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
             )
         }
     }
+
+    if (showOffsetDialog) {
+        SubtitleOffsetDialog(
+            initialOffsetMs = offset,
+            onApply = { newOffset ->
+                offset = newOffset
+                subtitleManager.setOffset(newOffset)
+                showOffsetDialog = false
+            },
+            onDismiss = { showOffsetDialog = false }
+        )
+    }
+}
+
+// Helper to get Activity from Context
+fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
 }
