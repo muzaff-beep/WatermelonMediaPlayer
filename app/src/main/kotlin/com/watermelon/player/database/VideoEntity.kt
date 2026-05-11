@@ -10,3 +10,7 @@ data class VideoEntity(
     val path: String,
     val duration: Long
 )
+
+// Already has id, title, path, duration – add:
+@ColumnInfo(name = "folder_path")
+val folderPath: String
