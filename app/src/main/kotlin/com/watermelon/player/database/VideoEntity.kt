@@ -8,8 +8,10 @@ import androidx.room.PrimaryKey
 data class VideoEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "title") val title: String,
-    @ColumnInfo(name = "uri") val uri: String,          // content:// or file://
+    @ColumnInfo(name = "uri") val uri: String,
     @ColumnInfo(name = "duration") val duration: Long,
     @ColumnInfo(name = "folder_path") val folderPath: String,
-    @ColumnInfo(name = "hash") val hash: String = ""    // MD5 future use
+    @ColumnInfo(name = "hash") val hash: String = "",
+    @ColumnInfo(name = "last_position") val lastPosition: Long = 0,
+    @ColumnInfo(name = "date_added") val dateAdded: Long = System.currentTimeMillis()
 )
