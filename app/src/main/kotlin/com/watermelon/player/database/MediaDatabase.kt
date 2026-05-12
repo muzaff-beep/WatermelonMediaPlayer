@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [VideoEntity::class, FolderVisibility::class],
     version = 1,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun videoDao(): VideoDao
