@@ -13,14 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.watermelon.player.database.VideoEntity
 import com.watermelon.player.ui.viewmodel.LibraryViewModel
 
@@ -87,21 +83,6 @@ fun LibraryScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VideoCard(video: VideoEntity, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val thumbnailUri = remember(video.uri) {
-        try {
-            val uri = Uri.parse(video.uri)
-            val videoId = uri.lastPathSegment?.toLongOrNull()
-            if (videoId != null) {
-                android.content.ContentUris.withAppendedId(
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId
-                ).toString()
-            } else video.uri
-        } catch (_: Exception) {
-            video.uri
-        }
-    }
-
     Card(
         modifier = Modifier
             .padding(4.dp)
@@ -111,18 +92,15 @@ fun VideoCard(video: VideoEntity, onClick: () -> Unit) {
         )
     ) {
         Column {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(thumbnailUri)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = video.title,
-                contentScale = ContentScale.Crop,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.DarkGray)
-            )
+                    .background(Color.DarkGray),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("▶", fontSize = 32.sp, color = Color.White)
+            }
             Column(modifier = Modifier.padding(8.dp)) {
                 Text(
                     text = video.title,
