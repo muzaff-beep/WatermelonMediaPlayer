@@ -43,8 +43,8 @@ android {
 }
 
 dependencies {
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
+    // Compose BOM — compatible with compileSdk 34 and AGP 8.2.x
+    val composeBom = platform("androidx.compose:compose-bom:2024.04.00")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
