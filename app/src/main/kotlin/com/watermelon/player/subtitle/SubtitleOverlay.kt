@@ -11,24 +11,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.watermelon.player.config.RegionalConfig
 
 @Composable
 fun SubtitleOverlay(
     cues: List<SubtitleCue>,
     modifier: Modifier = Modifier,
-    fontSize: Float = 20f,
-    languageHint: String? = null
+    fontSize: Float = 20f
 ) {
     val displayText = cues.joinToString("\n") { it.text }
     if (displayText.isBlank()) return
-
-    val fontFamily = when {
-        languageHint == null -> FontFamily.Default
-        else -> try {
-            FontFamily(FontFamily.SansSerif) // fallback; real font loading handled in theme
-        } catch (_: Exception) { FontFamily.Default }
-    }
 
     Box(
         modifier = modifier
@@ -41,7 +32,6 @@ fun SubtitleOverlay(
             text = displayText,
             color = Color.White,
             fontSize = fontSize.sp,
-            fontFamily = fontFamily,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             lineHeight = (fontSize * 1.4).sp,
