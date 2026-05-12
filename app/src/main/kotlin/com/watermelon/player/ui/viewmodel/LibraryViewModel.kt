@@ -3,48 +3,45 @@ package com.watermelon.player.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.watermelon.player.database.FolderVisibility
 import com.watermelon.player.database.MediaDatabase
+import com.watermelon.player.database.VideoEntity
+import com.watermelon.player.storage.UnifiedStorageAccess
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
-data class FolderItem(
-    val path: String,
-    val isVisible: Boolean
-)
-
-class FolderVisibilityViewModel(application: Application) : AndroidViewModel(application) {
+class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val db = MediaDatabase.getDatabase(application)
-    private val videoDao = db.videoDao()
-    private val folderVisibilityDao = db.folderVisibilityDao()
+    private val storage = UnifiedStorageAccess(application)
 
-    private val _folders = MutableStateFlow<List<FolderItem>>(emptyList())
-    val folders: StateFlow<List<FolderItem>> = _folders
+    private val _videos = MutableStateFlow<List<VideoEntity>>(emptyList())
+    val videos: StateFlow<List<VideoEntity>> = _videos
+
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning: StateFlow<Boolean> = _isScanning
 
     init {
         viewModelScope.launch {
-            combine(
-                videoDao.getAllFolders(),
-                folderVisibilityDao.getHiddenFolders()
-            ) { allFolders, hiddenFolders ->
-                val hiddenSet = hiddenFolders.map { it.folderPath }.toSet()
-                allFolders.map { path ->
-                    FolderItem(
-                        path = path,
-                        isVisible = path !in hiddenSet
-                    )
-                }
-            }.collect { items ->
-                _folders.value = items
+            db.videoDao().getVisibleVideos().collect { list ->
+                _videos.value = list
             }
         }
     }
 
-    fun toggleFolder(path: String, visible: Boolean) {
+    fun scan() {
         viewModelScope.launch {
-            folderVisibilityDao.setVisibility(FolderVisibility(path, visible))
+            _isScanning.value = true
+            try {
+                storage.scanAndInsertVideos()
+            } finally {
+                _isScanning.value = false
+            }
+        }
+    }
+
+    fun toggleFolderVisibility(folderPath: String, visible: Boolean) {
+        viewModelScope.launch {
+            storage.setFolderVisibility(folderPath, visible)
         }
     }
 }
