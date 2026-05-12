@@ -11,7 +11,6 @@ import com.watermelon.player.ui.screens.FolderVisibilityScreen
 import com.watermelon.player.ui.screens.LibraryScreen
 import com.watermelon.player.ui.screens.PlayerScreen
 import com.watermelon.player.ui.screens.SettingsScreen
-import java.io.File
 
 @Composable
 fun MainNavGraph(navController: NavHostController) {
