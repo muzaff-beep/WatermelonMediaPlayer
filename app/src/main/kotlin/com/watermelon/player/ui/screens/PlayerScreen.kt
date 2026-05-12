@@ -86,6 +86,7 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    // Attach the player instance to the PlayerView
                     player = this@PlayerScreen.player.player
                     useController = false
                     layoutParams = android.widget.FrameLayout.LayoutParams(
