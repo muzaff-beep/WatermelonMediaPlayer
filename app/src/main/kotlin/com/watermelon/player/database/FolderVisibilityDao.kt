@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface FolderVisibilityDao {
-    @Query("SELECT * FROM folder_visibility WHERE isVisible = 0")
+    @Query("SELECT * FROM folder_visibility WHERE is_visible = 0")
     fun getHiddenFolders(): Flow<List<FolderVisibility>>
 
-    @Query("SELECT isVisible FROM folder_visibility WHERE folderPath = :path")
+    @Query("SELECT is_visible FROM folder_visibility WHERE folderPath = :path")
     suspend fun isFolderVisible(path: String): Boolean?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
