@@ -11,7 +11,7 @@ interface VideoDao {
     @Query("""
         SELECT * FROM videos 
         WHERE folder_path NOT IN (
-            SELECT folderPath FROM folder_visibility WHERE isVisible = 0
+            SELECT folderPath FROM folder_visibility WHERE is_visible = 0
         )
         ORDER BY date_added DESC
     """)
