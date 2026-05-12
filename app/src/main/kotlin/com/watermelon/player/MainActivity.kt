@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
+import com.watermelon.player.ui.navigation.MainNavGraph   // corrected
 import com.watermelon.player.ui.theme.WatermelonPlayerTheme
-import com.watermelon.player.ui.navigation.MainNavGraph
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
