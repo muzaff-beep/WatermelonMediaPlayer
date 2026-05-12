@@ -1,0 +1,338 @@
+name: Generate Project Structure
+
+on:
+  push:
+    branches:
+      - '**'           # Runs on push to any branch
+  workflow_dispatch:    # Also manual trigger
+
+# Give the workflow permission to write back to the repository
+permissions:
+  contents: write
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create full project structure
+        shell: bash
+        run: |
+          set -euo pipefail  # Stop on first error, fail on undefined vars
+
+          # ============================================================
+          # FUNCTION: Create directory and file only if file missing
+          # ============================================================
+          create_file() {
+            local dir="$1"
+            local file="$2"
+            mkdir -p "$dir"
+            [ -f "$dir/$file" ] || touch "$dir/$file"
+          }
+
+          # ============================================================
+          # ROOT CONFIG FILES
+          # ============================================================
+          for f in .gitignore .editorconfig build.gradle.kts settings.gradle.kts \
+                   gradle.properties local.properties README.md LICENSE; do
+            [ -f "$f" ] || touch "$f"
+          done
+
+          mkdir -p gradle/wrapper
+          for f in gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties; do
+            [ -f "$f" ] || touch "$f"
+          done
+
+          mkdir -p .github/workflows
+          [ -f .github/workflows/ci.yml ] || touch .github/workflows/ci.yml
+
+          # ============================================================
+          # RUST CORE (Team 1)
+          # ============================================================
+          create_file "rust-core/src"              "lib.rs"
+          create_file "rust-core/src"              "engine.rs"
+          create_file "rust-core/src"              "decoder.rs"
+          create_file "rust-core/src"              "audio.rs"
+          create_file "rust-core/src"              "subtitle.rs"
+          create_file "rust-core/src"              "plugin_host.rs"
+          create_file "rust-core/src"              "playlist_parser.rs"
+          create_file "rust-core/src"              "jni_bridge.rs"
+          create_file "rust-core/src"              "callback.rs"
+          create_file "rust-core/src"              "error.rs"
+          create_file "rust-core/src"              "demuxer.rs"
+          create_file "rust-core/src"              "renderer.rs"
+          create_file "rust-core/src"              "network_stream.rs"
+          create_file "rust-core/src"              "crypto.rs"
+          create_file "rust-core/src"              "utils.rs"
+          create_file "rust-core/src"              "types.rs"
+          create_file "rust-core"                  "Cargo.toml"
+          create_file "rust-core"                  "build.rs"
+          create_file "rust-core/.cargo"           "config.toml"
+
+          mkdir -p rust-core/tests/common
+          for f in engine_test.rs decoder_test.rs subtitle_test.rs \
+                   playlist_parser_test.rs plugin_host_test.rs jni_bridge_test.rs \
+                   integration_test.rs network_stream_test.rs; do
+            create_file "rust-core/tests" "$f"
+          done
+          create_file "rust-core/tests/common" "mod.rs"
+          create_file "rust-core/tests/common" "test_utils.rs"
+
+          mkdir -p rust-core/test-data/sample.hls
+          for f in sample.srt sample.ass sample.m3u sample.pls; do
+            create_file "rust-core/test-data" "$f"
+          done
+          create_file "rust-core/test-data/sample.hls" "master.m3u8"
+          create_file "rust-core/test-data/sample.hls" "segment_0.ts"
+
+          mkdir -p rust-core/scripts
+          create_file "rust-core/scripts" "build-android.sh"
+          create_file "rust-core/scripts" "run-desktop-tests.sh"
+
+          # ============================================================
+          # CODEC PLUGIN TRAIT
+          # ============================================================
+          create_file "codec-plugin/src" "lib.rs"
+          create_file "codec-plugin"     "Cargo.toml"
+
+          # ============================================================
+          # SAMPLE CODEC PLUGIN
+          # ============================================================
+          create_file "sample-codec-plugin/src" "lib.rs"
+          create_file "sample-codec-plugin"     "Cargo.toml"
+
+          # ============================================================
+          # APP MODULE
+          # ============================================================
+          create_file "app" "build.gradle.kts"
+          create_file "app" "proguard-rules.pro"
+          create_file "app/src/main" "AndroidManifest.xml"
+
+          # JNI libs placeholder dirs (no files inside)
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          mkdir -p app/src/main/jniLibs/armeabi-v7a
+          mkdir -p app/src/main/jniLibs/x86_64
+
+          # ============================================================
+          # KOTLIN SOURCE (Teams 2, 3, 4)
+          # ============================================================
+          PKG="app/src/main/kotlin/com/watermelon/player"
+
+          # App-level
+          create_file "$PKG"              "WatermelonApp.kt"
+          create_file "$PKG"              "MainActivity.kt"
+
+          # Config
+          create_file "$PKG/config"       "RegionalConfig.kt"
+          create_file "$PKG/config"       "BuildConfigFlags.kt"
+
+          # DI
+          create_file "$PKG/di"           "AppModule.kt"
+          create_file "$PKG/di"           "ViewModelModule.kt"
+
+          # Team 2: JNI bridge
+          create_file "$PKG/rust"         "WatermelonCore.kt"
+          create_file "$PKG/rust"         "NativeLibLoader.kt"
+          create_file "$PKG/rust"         "JniExceptionHandler.kt"
+
+          # Team 2: Platform
+          for f in SurfaceProvider.kt NetworkSocketProvider.kt AudioFocusManager.kt \
+                   ThermalMonitor.kt WakeLockManager.kt HeadphoneStateMonitor.kt; do
+            create_file "$PKG/platform" "$f"
+          done
+
+          # Team 2: Callbacks
+          create_file "$PKG/callback"     "CoreEventAdapter.kt"
+          create_file "$PKG/callback"     "EventDispatcher.kt"
+
+          # Team 3: Database entities
+          for f in VideoEntity.kt FolderEntity.kt PlaylistEntity.kt \
+                   PlaylistEntryEntity.kt ResumePointEntity.kt; do
+            create_file "$PKG/database/entity" "$f"
+          done
+
+          # Team 3: DAOs
+          for f in VideoDao.kt FolderDao.kt PlaylistDao.kt ResumePointDao.kt; do
+            create_file "$PKG/database/dao" "$f"
+          done
+
+          # Team 3: Converters & Database
+          create_file "$PKG/database/converter" "Converters.kt"
+          create_file "$PKG/database"           "MediaDatabase.kt"
+
+          # Team 3: Scanner
+          for f in VideoScanner.kt VideoScannerWorker.kt ScanResult.kt ScanScheduler.kt; do
+            create_file "$PKG/scan" "$f"
+          done
+
+          # Team 3: Storage
+          for f in UnifiedStorageAccess.kt StoragePermissionManager.kt ExternalStorageHelper.kt; do
+            create_file "$PKG/storage" "$f"
+          done
+
+          # Team 3: Repositories
+          for f in MediaRepository.kt PlaylistRepository.kt FolderRepository.kt ResumeRepository.kt; do
+            create_file "$PKG/repository" "$f"
+          done
+
+          # Team 3: Domain models
+          for f in Video.kt Folder.kt Playlist.kt PlaylistEntry.kt ResumePoint.kt; do
+            create_file "$PKG/model" "$f"
+          done
+
+          # Team 4: ViewModels
+          for f in LibraryViewModel.kt PlayerViewModel.kt PlaylistDetailViewModel.kt \
+                   FolderVisibilityViewModel.kt SubtitleOffsetViewModel.kt SettingsViewModel.kt; do
+            create_file "$PKG/viewmodel" "$f"
+          done
+
+          # Theme
+          for f in WatermelonPlayerTheme.kt Color.kt Type.kt Shape.kt Dimens.kt; do
+            create_file "$PKG/ui/theme" "$f"
+          done
+
+          # Navigation
+          for f in MainNavGraph.kt TvNavGraph.kt Route.kt NavTransitions.kt; do
+            create_file "$PKG/ui/navigation" "$f"
+          done
+
+          # Library screen
+          for f in LibraryScreen.kt LibraryTopBar.kt VideoGridItem.kt FolderChipRow.kt LibraryEmptyState.kt; do
+            create_file "$PKG/ui/screens/library" "$f"
+          done
+
+          # Player screen
+          for f in PlayerScreen.kt PlayerTopBar.kt VideoSurface.kt PlayerControlsOverlay.kt \
+                   SeekBar.kt SubtitleOverlay.kt VolumeGestureHandler.kt BrightnessGestureHandler.kt \
+                   AudioTrackSelector.kt SubtitleTrackSelector.kt PlaybackSpeedController.kt PlayerLockButton.kt; do
+            create_file "$PKG/ui/screens/player" "$f"
+          done
+
+          # Playlist screens
+          for f in PlaylistListScreen.kt PlaylistDetailScreen.kt CreatePlaylistDialog.kt ReorderPlaylistDialog.kt; do
+            create_file "$PKG/ui/screens/playlist" "$f"
+          done
+
+          # Folder screens
+          create_file "$PKG/ui/screens/folders" "FolderVisibilityScreen.kt"
+          create_file "$PKG/ui/screens/folders" "FolderVisibilityItem.kt"
+
+          # Settings screens
+          for f in SettingsScreen.kt CodecSettings.kt AudioSettings.kt SubtitleSettings.kt \
+                   NetworkSettings.kt AboutScreen.kt; do
+            create_file "$PKG/ui/screens/settings" "$f"
+          done
+
+          # Dialogs
+          for f in SubtitleOffsetDialog.kt FilePickerDialog.kt DeleteConfirmDialog.kt ScanningProgressDialog.kt; do
+            create_file "$PKG/ui/screens/dialogs" "$f"
+          done
+
+          # Shared components
+          for f in TvFocusBorder.kt AspectRatioContainer.kt ShimmerPlaceholder.kt \
+                   ErrorRetryView.kt AdaptiveGrid.kt PullToRefreshBox.kt MediaCard.kt; do
+            create_file "$PKG/ui/components" "$f"
+          done
+
+          # UI utils
+          for f in TimeFormatter.kt FileSizeFormatter.kt DPadHelper.kt WindowSizeClass.kt; do
+            create_file "$PKG/ui/util" "$f"
+          done
+
+          # ============================================================
+          # RESOURCES — skips all existing files in app/src/main/res/
+          # ============================================================
+          RES="app/src/main/res"
+          mkdir -p "$RES"
+
+          # values/
+          create_file "$RES/values" "strings.xml"
+          create_file "$RES/values" "strings-ar.xml"
+          create_file "$RES/values" "colors.xml"
+          create_file "$RES/values" "themes.xml"
+          create_file "$RES/values" "dimens.xml"
+
+          # values-television
+          create_file "$RES/values-television" "dimens.xml"
+
+          # drawables
+          for f in ic_launcher_foreground.xml ic_player_play.xml ic_player_pause.xml \
+                   ic_player_next.xml ic_player_previous.xml ic_subtitles.xml \
+                   ic_playlist_add.xml ic_folder_hidden.xml ic_folder_visible.xml \
+                   ic_settings.xml ic_watermelon_logo.xml; do
+            create_file "$RES/drawable" "$f"
+          done
+
+          # drawable-tv
+          create_file "$RES/drawable-tv" "tv_banner.xml"
+
+          # mipmaps
+          for d in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            create_file "$RES/$d" "ic_launcher.webp"
+          done
+          create_file "$RES/mipmap-anydpi-v26" "ic_launcher.xml"
+
+          # xml
+          for f in leanback_launcher.xml file_paths.xml network_security_config.xml; do
+            create_file "$RES/xml" "$f"
+          done
+
+          # ============================================================
+          # TEST DIRECTORIES
+          # ============================================================
+          TEST_PKG="app/src/test/kotlin/com/watermelon/player"
+          for f in WatermelonCoreTest.kt; do
+            create_file "$TEST_PKG/rust" "$f"
+          done
+          for f in SurfaceProviderTest.kt NetworkSocketProviderTest.kt AudioFocusManagerTest.kt ThermalMonitorTest.kt; do
+            create_file "$TEST_PKG/platform" "$f"
+          done
+          for f in MediaRepositoryTest.kt PlaylistRepositoryTest.kt FolderRepositoryTest.kt; do
+            create_file "$TEST_PKG/repository" "$f"
+          done
+          for f in LibraryViewModelTest.kt PlayerViewModelTest.kt FolderVisibilityViewModelTest.kt; do
+            create_file "$TEST_PKG/viewmodel" "$f"
+          done
+
+          ANDROID_TEST_PKG="app/src/androidTest/kotlin/com/watermelon/player"
+          for f in VideoDaoTest.kt FolderDaoTest.kt PlaylistDaoTest.kt MigrationTest.kt; do
+            create_file "$ANDROID_TEST_PKG/database" "$f"
+          done
+          create_file "$ANDROID_TEST_PKG/scan" "VideoScannerTest.kt"
+          create_file "$ANDROID_TEST_PKG/storage" "UnifiedStorageAccessTest.kt"
+          for f in MediaRepositoryInstrumentedTest.kt PlaylistRepositoryInstrumentedTest.kt; do
+            create_file "$ANDROID_TEST_PKG/repository" "$f"
+          done
+          for f in LibraryScreenTest.kt PlayerScreenTest.kt FolderVisibilityScreenTest.kt SettingsScreenTest.kt TvNavigationTest.kt; do
+            create_file "$ANDROID_TEST_PKG/ui" "$f"
+          done
+          for f in PlaybackIntegrationTest.kt PlaylistIntegrationTest.kt FolderVisibilityIntegrationTest.kt; do
+            create_file "$ANDROID_TEST_PKG/integration" "$f"
+          done
+
+          # ============================================================
+          # DOCUMENTATION
+          # ============================================================
+          mkdir -p docs
+          for f in architecture.md interface-contracts.md team-1-rust-engine.md team-2-jni-bridge.md \
+                   team-3-storage.md team-4-ui.md testing-strategy.md codec-plugin-sdk.md release-checklist.md; do
+            [ -f "docs/$f" ] || touch "docs/$f"
+          done
+
+          echo "✅ All placeholder files and directories created."
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No new files to commit."
+          else
+            git commit -m "Scaffold full project structure (auto-generated)"
+            git push
+            echo "✅ Scaffold committed and pushed."
+          fi
