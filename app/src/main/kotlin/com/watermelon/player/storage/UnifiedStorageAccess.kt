@@ -1,11 +1,7 @@
 package com.watermelon.player.storage
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.media.ThumbnailUtils
-import android.net.Uri
 import android.provider.MediaStore
-import androidx.core.net.toUri
 import com.watermelon.player.database.MediaDatabase
 import com.watermelon.player.database.VideoEntity
 import java.io.File
@@ -74,16 +70,4 @@ class UnifiedStorageAccess(private val context: Context) {
     }
 
     suspend fun getHiddenFolders() = folderVisibilityDao.getHiddenFolders()
-
-    fun loadThumbnail(videoUri: String): Bitmap? {
-        return try {
-            val uri = videoUri.toUri()
-            ThumbnailUtils.createVideoThumbnail(
-                File(uri.path ?: return null),
-                MediaStore.Video.Thumbnails.MINI_KIND
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
 }
