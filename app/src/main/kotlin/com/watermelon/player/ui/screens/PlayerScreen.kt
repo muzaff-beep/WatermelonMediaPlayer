@@ -44,6 +44,9 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
     var showOffsetDialog by remember { mutableStateOf(false) }
     var offset by remember { mutableStateOf(0L) }
 
+    // Capture the underlying ExoPlayer once; never reassign
+    val exoPlayer = remember { player.player }
+
     DisposableEffect(Unit) {
         onDispose {
             player.release()
@@ -86,8 +89,7 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    // Attach the player instance to the PlayerView
-                    player = this@PlayerScreen.player.player
+                    player = exoPlayer
                     useController = false
                     layoutParams = android.widget.FrameLayout.LayoutParams(
                         android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
