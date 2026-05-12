@@ -1,7 +1,11 @@
 package com.watermelon.player.storage
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.ThumbnailUtils
+import android.net.Uri
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import com.watermelon.player.database.MediaDatabase
 import com.watermelon.player.database.VideoEntity
 import java.io.File
@@ -18,7 +22,7 @@ class UnifiedStorageAccess(private val context: Context) {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
-            MediaStore.Video.Media.DATA,          // deprecated but still works on older APIs
+            MediaStore.Video.Media.DATA,
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.RELATIVE_PATH
         )
@@ -37,11 +41,7 @@ class UnifiedStorageAccess(private val context: Context) {
             while (cursor.moveToNext()) {
                 val data = cursor.getString(dataCol) ?: continue
                 val file = File(data)
-                val folderPath = file.parent ?: relativePathCol.let { 
-                    cursor.getString(it) ?: "unknown"
-                }
-
-                // Basic filter: skip files < 1 second (likely corrupt)
+                val folderPath = file.parent ?: (cursor.getString(relativePathCol) ?: "unknown")
                 val duration = cursor.getLong(durationCol)
                 if (duration < 1000) continue
 
@@ -55,8 +55,7 @@ class UnifiedStorageAccess(private val context: Context) {
                         title = cursor.getString(nameCol) ?: "Unknown",
                         uri = uri,
                         duration = duration,
-                        folderPath = folderPath,
-                        hash = ""   // compute later
+                        folderPath = folderPath
                     )
                 )
             }
@@ -75,4 +74,16 @@ class UnifiedStorageAccess(private val context: Context) {
     }
 
     suspend fun getHiddenFolders() = folderVisibilityDao.getHiddenFolders()
+
+    fun loadThumbnail(videoUri: String): Bitmap? {
+        return try {
+            val uri = videoUri.toUri()
+            ThumbnailUtils.createVideoThumbnail(
+                File(uri.path ?: return null),
+                MediaStore.Video.Thumbnails.MINI_KIND
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
 }
