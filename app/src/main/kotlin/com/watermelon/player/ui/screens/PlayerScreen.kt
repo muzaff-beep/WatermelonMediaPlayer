@@ -44,7 +44,6 @@ fun PlayerScreen(videoUri: Uri, subtitleFile: File? = null) {
     var showOffsetDialog by remember { mutableStateOf(false) }
     var offset by remember { mutableStateOf(0L) }
 
-    // Capture the underlying ExoPlayer once; never reassign
     val exoPlayer = remember { player.player }
 
     DisposableEffect(Unit) {

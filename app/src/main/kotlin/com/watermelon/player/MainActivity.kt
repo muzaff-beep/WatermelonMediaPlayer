@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
-import com.watermelon.player.ui.navigation.MainNavGraph   // corrected
+import com.watermelon.player.ui.navigation.MainNavGraph
 import com.watermelon.player.ui.theme.WatermelonPlayerTheme
 
 class MainActivity : ComponentActivity() {
