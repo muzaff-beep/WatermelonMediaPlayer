@@ -3,7 +3,8 @@ use crate::error::EngineResult;
 use std::sync::{Mutex, OnceLock};
 #[cfg(target_os = "android")]
 use oboe::{
-    AudioStreamAsync, AudioStreamBuilder, DataCallbackResult, Output, Stereo,
+    AudioOutputStream, AudioStream, AudioStreamAsync, AudioStreamBuilder, DataCallbackResult,
+    Output, Stereo,
 };
 
 static AUDIO_ENGINE: OnceLock<Mutex<AudioEngine>> = OnceLock::new();
