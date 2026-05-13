@@ -1,23 +1,15 @@
 // rust-core/src/audio.rs
-// Android AAudio output via Oboe wrapper. Low-latency audio path per Manifesto §1.2.
+// Android AAudio output via Oboe. Manifesto §1.2 audio path.
 
 use crate::decoder::{AudioConfig, AudioSampleFormat, DecodedAudioFrame};
-use crate::error::{EngineError, EngineResult};
-use std::sync::{Arc, Mutex};
+use crate::error::EngineResult;
+use std::sync::{Mutex, OnceLock};
 
-// ---------------------------------------------------------------------------
-// Oboe binding — conditional on Android target.
-// ---------------------------------------------------------------------------
 #[cfg(target_os = "android")]
 use oboe::{
     AudioOutputCallback, AudioStream, AudioStreamBuilder, DataCallbackResult,
     PerformanceMode, SharingMode, StreamDirection,
 };
-
-// ---------------------------------------------------------------------------
-// Audio engine state
-// ---------------------------------------------------------------------------
-use std::sync::OnceLock;
 
 static AUDIO_ENGINE: OnceLock<Mutex<AudioEngine>> = OnceLock::new();
 
@@ -34,18 +26,12 @@ struct AudioStreamHandle {
     stream_ptr: *mut AudioStream,
 }
 
-// Safety: AudioStream is Send (Oboe C++ class is internally synchronized).
 #[cfg(target_os = "android")]
 unsafe impl Send for AudioStreamHandle {}
 
 #[cfg(not(target_os = "android"))]
 struct AudioStreamHandle;
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/// Initialize the audio output backend with the given audio configuration.
 pub fn init(config: &AudioConfig) -> EngineResult<()> {
     let engine = AudioEngine {
         config: config.clone(),
@@ -67,24 +53,24 @@ pub fn init(config: &AudioConfig) -> EngineResult<()> {
         let raw_ptr: *mut AudioStream = handle.stream_ptr;
         engine.stream = Some(handle);
 
-        // Start the stream
         unsafe {
             (*raw_ptr).start().map_err(|e| {
-                EngineError::AudioInitFailed
+                log::error!("Oboe start failed: {:?}", e);
+                crate::error::EngineError::AudioInitFailed
             })?;
         }
         engine.is_playing = true;
 
         AUDIO_ENGINE
             .set(Mutex::new(engine))
-            .map_err(|_| EngineError::Internal("Audio engine already initialized".into()))?;
+            .map_err(|_| crate::error::EngineError::Internal("Audio engine already initialized".into()))?;
     }
 
     #[cfg(not(target_os = "android"))]
     {
         AUDIO_ENGINE
             .set(Mutex::new(engine))
-            .map_err(|_| EngineError::Internal("Audio engine already initialized".into()))?;
+            .map_err(|_| crate::error::EngineError::Internal("Audio engine already initialized".into()))?;
     }
 
     log::info!(
@@ -95,13 +81,10 @@ pub fn init(config: &AudioConfig) -> EngineResult<()> {
     Ok(())
 }
 
-/// Push a decoded audio frame into the playback queue.
-/// The audio callback thread will consume frames from this queue.
 pub fn enqueue_frame(frame: DecodedAudioFrame) {
     if let Some(engine) = AUDIO_ENGINE.get() {
         if let Ok(mut eng) = engine.lock() {
             eng.buffer_queue.push(frame);
-            // Prevent unbounded queue growth
             if eng.buffer_queue.len() > 16 {
                 eng.buffer_queue.remove(0);
             }
@@ -109,7 +92,6 @@ pub fn enqueue_frame(frame: DecodedAudioFrame) {
     }
 }
 
-/// Pause audio output.
 pub fn pause() {
     if let Some(engine) = AUDIO_ENGINE.get() {
         if let Ok(mut eng) = engine.lock() {
@@ -126,7 +108,6 @@ pub fn pause() {
     }
 }
 
-/// Resume audio output.
 pub fn play() {
     if let Some(engine) = AUDIO_ENGINE.get() {
         if let Ok(mut eng) = engine.lock() {
@@ -143,7 +124,6 @@ pub fn play() {
     }
 }
 
-/// Flush audio queue and reset stream (after seek).
 pub fn flush() {
     if let Some(engine) = AUDIO_ENGINE.get() {
         if let Ok(mut eng) = engine.lock() {
@@ -161,7 +141,6 @@ pub fn flush() {
     }
 }
 
-/// Get the number of queued audio frames (for buffer health monitoring).
 pub fn queue_depth() -> usize {
     if let Some(engine) = AUDIO_ENGINE.get() {
         if let Ok(eng) = engine.lock() {
@@ -171,22 +150,11 @@ pub fn queue_depth() -> usize {
     0
 }
 
-// ---------------------------------------------------------------------------
-// Oboe stream creation
-// ---------------------------------------------------------------------------
-
 #[cfg(target_os = "android")]
 fn create_oboe_stream(config: &AudioConfig) -> EngineResult<AudioStream> {
     let channel_count = config.channels as i32;
     let sample_rate = config.sample_rate as i32;
 
-    // Map our sample format to Oboe format
-    let format = match config.format {
-        AudioSampleFormat::S16 => oboe::AudioFormat::I16,
-        AudioSampleFormat::F32 => oboe::AudioFormat::F32,
-    };
-
-    // Oboe callback that reads from our buffer queue
     struct OboeCallback {
         engine: &'static Mutex<AudioEngine>,
     }
@@ -194,12 +162,11 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<AudioStream> {
     impl AudioOutputCallback for OboeCallback {
         fn on_audio_ready(
             &mut self,
-            stream: &mut AudioStream,
+            _stream: &mut AudioStream,
             audio_data: &mut [f32],
         ) -> DataCallbackResult {
             if let Ok(mut eng) = self.engine.lock() {
                 if !eng.is_playing {
-                    // Fill with silence
                     for sample in audio_data.iter_mut() {
                         *sample = 0.0f32;
                     }
@@ -207,35 +174,14 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<AudioStream> {
                 }
 
                 if let Some(frame) = eng.buffer_queue.first() {
-                    // Convert frame data to f32 samples
-                    let samples_out = audio_data.len();
-                    let src = &frame.data;
-                    match eng.config.format {
-                        AudioSampleFormat::S16 => {
-                            let s16_data: &[i16] =
-                                unsafe { std::slice::from_raw_parts(src.as_ptr() as *const i16, src.len() / 2) };
-                            let count = std::cmp::min(samples_out, s16_data.len());
-                            for i in 0..count {
-                                audio_data[i] = s16_data[i] as f32 / 32768.0f32;
-                            }
-                            for i in count..samples_out {
-                                audio_data[i] = 0.0f32;
-                            }
-                        }
-                        AudioSampleFormat::F32 => {
-                            let f32_data: &[f32] =
-                                unsafe { std::slice::from_raw_parts(src.as_ptr() as *const f32, src.len() / 4) };
-                            let count = std::cmp::min(samples_out, f32_data.len());
-                            audio_data[..count].copy_from_slice(&f32_data[..count]);
-                            for i in count..samples_out {
-                                audio_data[i] = 0.0f32;
-                            }
-                        }
+                    let src: &[f32] = bytemuck::cast_slice(&frame.data);
+                    let count = std::cmp::min(audio_data.len(), src.len());
+                    audio_data[..count].copy_from_slice(&src[..count]);
+                    for i in count..audio_data.len() {
+                        audio_data[i] = 0.0f32;
                     }
-                    // Remove consumed frame
                     eng.buffer_queue.remove(0);
                 } else {
-                    // Underflow — fill silence
                     for sample in audio_data.iter_mut() {
                         *sample = 0.0f32;
                     }
@@ -253,31 +199,27 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<AudioStream> {
         }
     }
 
-    // Build the stream
     let engine_ref: &'static Mutex<AudioEngine> =
         AUDIO_ENGINE.get().ok_or_else(|| {
-            EngineError::Internal("Audio engine not initialized for callback".into())
+            crate::error::EngineError::Internal("Audio engine not initialized for callback".into())
         })?;
 
-    let callback = OboeCallback {
-        engine: engine_ref,
-    };
+    let callback = OboeCallback { engine: engine_ref };
 
     let mut stream = AudioStreamBuilder::default()
         .direction(StreamDirection::Output)
         .performance_mode(PerformanceMode::LowLatency)
         .sharing_mode(SharingMode::Exclusive)
-        .format(format)
+        .format(oboe::AudioFormat::F32)
         .channel_count(channel_count)
         .sample_rate(sample_rate)
         .callback(callback)
         .open()
         .map_err(|e| {
             log::error!("Oboe stream open failed: {:?}", e);
-            EngineError::AudioInitFailed
+            crate::error::EngineError::AudioInitFailed
         })?;
 
-    // Set buffer size to minimize latency
     let _ = stream.set_buffer_size_in_frames(256);
 
     log::info!(
@@ -290,10 +232,6 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<AudioStream> {
     Ok(stream)
 }
 
-// ---------------------------------------------------------------------------
-// Drop cleanup
-// ---------------------------------------------------------------------------
-
 impl Drop for AudioEngine {
     fn drop(&mut self) {
         #[cfg(target_os = "android")]
@@ -304,15 +242,10 @@ impl Drop for AudioEngine {
                 let _ = (*raw_ptr).close();
                 let _ = Box::from_raw(raw_ptr);
             }
-            log::debug!("Audio stream closed and freed");
         }
         self.buffer_queue.clear();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -320,14 +253,12 @@ mod tests {
 
     #[test]
     fn test_queue_depth_empty() {
-        // Without initialization, queue depth is 0
         assert_eq!(queue_depth(), 0);
     }
 
     #[test]
     fn test_audio_config_format_equality() {
-        assert_eq!(AudioSampleFormat::S16, AudioSampleFormat::S16);
-        assert_ne!(AudioSampleFormat::S16, AudioSampleFormat::F32);
+        assert_eq!(AudioSampleFormat::F32, AudioSampleFormat::F32);
     }
 
     #[test]
