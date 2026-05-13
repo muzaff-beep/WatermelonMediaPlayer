@@ -1,60 +1,65 @@
-// app/src/main/kotlin/com/watermelon/player/viewmodel/LibraryViewModel.kt
-// ViewModel for the Library screen. Exposes video list and scan state.
+// app/src/main/kotlin/com/watermelon/player/viewmodel/FolderVisibilityViewModel.kt
+// ViewModel for the Folder Visibility screen.
 
 package com.watermelon.player.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.watermelon.player.database.FolderVisibility
 import com.watermelon.player.database.MediaDatabase
-import com.watermelon.player.repository.MediaRepository
-import com.watermelon.player.scan.VideoScannerWorker
-import kotlinx.coroutines.flow.*
+import com.watermelon.player.repository.FolderRepository
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class LibraryViewModel(application: Application) : AndroidViewModel(application) {
+data class FolderItem(
+    val folderUri: String,
+    val displayName: String,
+    val isVisible: Boolean
+)
+
+class FolderVisibilityViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = MediaDatabase.getInstance(application)
-    private val repository = MediaRepository(db)
-    private val scanner = VideoScannerWorker(application)
+    private val folderRepository = FolderRepository(db.folderVisibilityDao())
 
-    val videos = repository.getVisibleVideos().stateIn(
+    val folders: StateFlow<List<FolderItem>> = folderRepository.getAll().stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         emptyList()
-    )
-
-    private val _isScanning = MutableStateFlow(false)
-    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
-
-    private val _scanProgress = MutableStateFlow(Pair(0, 0))
-    val scanProgress: StateFlow<Pair<Int, Int>> = _scanProgress.asStateFlow()
-
-    init {
-        scanner.setOnProgress { scanned, total ->
-            _scanProgress.value = Pair(scanned, total)
-        }
-        scanner.setOnComplete { total ->
-            _isScanning.value = false
-            _scanProgress.value = Pair(total, total)
-        }
-        startScan()
+    ).let { flow ->
+        // Map FolderVisibility entities to FolderItem for display
+        kotlinx.coroutines.flow.combine(
+            flow,
+            kotlinx.coroutines.flow.flowOf(emptyList<FolderVisibility>())
+        ) { items, _ ->
+            items.map { fv ->
+                FolderItem(
+                    folderUri = fv.folderUri,
+                    displayName = fv.folderUri.substringAfterLast('/').ifEmpty { fv.folderUri },
+                    isVisible = fv.isVisible
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
-    fun startScan() {
+    fun toggleVisibility(folderUri: String) {
         viewModelScope.launch {
-            _isScanning.value = true
-            _scanProgress.value = Pair(0, 0)
-            scanner.scanAll()
+            folderRepository.toggleVisibility(folderUri)
         }
     }
 
-    fun refresh() {
-        startScan()
+    fun removeOverride(folderUri: String) {
+        viewModelScope.launch {
+            folderRepository.removeOverride(folderUri)
+        }
     }
 
-    override fun onCleared() {
-        scanner.release()
-        super.onCleared()
+    fun addFolder(folderUri: String, visible: Boolean = true) {
+        viewModelScope.launch {
+            folderRepository.setVisibility(folderUri, visible)
+        }
     }
 }
