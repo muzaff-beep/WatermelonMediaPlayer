@@ -1,6 +1,3 @@
-// rust-core/src/engine.rs
-use crate::audio;
-use crate::callback::CallbackDispatcher;
 use crate::decoder;
 use crate::error::{EngineError, EngineResult};
 use crate::plugin_host::PluginHost;
@@ -10,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct MediaEngine {
     inner: Arc<Mutex<EngineInner>>,
-    callback: Arc<Mutex<Option<CallbackDispatcher>>>,
+    callback: Arc<Mutex<Option<crate::callback::CallbackDispatcher>>>,
 }
 
 struct EngineInner {
@@ -28,10 +25,14 @@ struct EngineInner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-pub enum PlaybackState { Idle = 0, Preparing = 1, Playing = 2, Paused = 3, Ended = 4, Error = 5 }
+pub enum PlaybackState {
+    Idle = 0, Preparing = 1, Playing = 2, Paused = 3, Ended = 4, Error = 5,
+}
 
 #[derive(Debug, Clone)]
-pub struct SubtitleCue { pub start_us: i64, pub end_us: i64, pub text: String }
+pub struct SubtitleCue {
+    pub start_us: i64, pub end_us: i64, pub text: String,
+}
 
 impl MediaEngine {
     pub fn new() -> Self {
@@ -44,37 +45,42 @@ impl MediaEngine {
             callback: Arc::new(Mutex::new(None)),
         }
     }
-
     pub fn set_data_source(&mut self, uri: &str) -> EngineResult<()> {
         let mut inner = self.inner.lock().unwrap();
         inner.uri = Some(uri.to_owned());
-        inner.state = PlaybackState::Idle;
-        inner.decoder_ready = false;
         Ok(())
     }
-
-    pub fn prepare(&mut self) { /* spawns thread calling decoder::init + audio::init */ }
-    pub fn play(&mut self) {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.state == PlaybackState::Paused || inner.state == PlaybackState::Preparing {
-            inner.state = PlaybackState::Playing;
-        }
+    pub fn prepare(&mut self) {
+        let inner = self.inner.clone();
+        let cb = self.callback.clone();
+        std::thread::spawn(move || {
+            let mut eng = inner.lock().unwrap();
+            eng.state = PlaybackState::Preparing;
+            if let Some(ref uri) = eng.uri.clone() {
+                if let Ok((dur, _cfg)) = decoder::init(uri) {
+                    eng.duration_us = dur;
+                    eng.decoder_ready = true;
+                    eng.state = PlaybackState::Playing;
+                    drop(eng);
+                    if let Ok(cb) = cb.lock() {
+                        if let Some(ref disp) = *cb {
+                            disp.on_prepared(dur);
+                        }
+                    }
+                }
+            }
+        });
     }
-    pub fn pause(&mut self) {
+    pub fn play(&mut self) { self.inner.lock().unwrap().state = PlaybackState::Playing; }
+    pub fn pause(&mut self) { self.inner.lock().unwrap().state = PlaybackState::Paused; }
+    pub fn seek_to(&mut self, pos: i64) {
         let mut inner = self.inner.lock().unwrap();
-        if inner.state == PlaybackState::Playing { inner.state = PlaybackState::Paused; }
-    }
-    pub fn seek_to(&mut self, pos_us: i64) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.position_us = pos_us;
+        inner.position_us = pos;
         decoder::flush();
-        if let Some(ref mut s) = inner.subtitle_manager { s.flush(); }
     }
     pub fn get_current_position(&self) -> i64 { self.inner.lock().unwrap().position_us }
     pub fn get_duration(&self) -> i64 { self.inner.lock().unwrap().duration_us }
-
     pub fn set_surface(&mut self, _surface: *mut std::ffi::c_void) {}
-
     pub fn load_subtitle(&mut self, path: &str) -> EngineResult<()> {
         let mut inner = self.inner.lock().unwrap();
         let mut m = SubtitleManager::new();
@@ -89,15 +95,12 @@ impl MediaEngine {
         if let Some(ref mut s) = inner.subtitle_manager { s.set_offset(ms); }
     }
     pub fn set_subtitle_font(&mut self, path: &str) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.subtitle_font_path = Some(path.to_owned());
-        if let Some(ref mut s) = inner.subtitle_manager { s.set_font_path(path); }
+        self.inner.lock().unwrap().subtitle_font_path = Some(path.to_owned());
     }
     pub fn load_plugin(&mut self, path: &str) -> EngineResult<()> {
         self.inner.lock().unwrap().plugin_host.load(path)
     }
     pub fn set_event_callback(&mut self, cb: Option<GlobalRef>) {
-        let dispatcher = cb.map(CallbackDispatcher::new);
-        *self.callback.lock().unwrap() = dispatcher;
+        *self.callback.lock().unwrap() = cb.map(crate::callback::CallbackDispatcher::new);
     }
 }
