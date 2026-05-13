@@ -24,11 +24,8 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version 8.2
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -46,9 +43,6 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: ${{ runner.os }}-gradle-
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
 
       - name: Locate Android NDK
         id: ndk
