@@ -1,4 +1,3 @@
-// rust-core/src/callback.rs
 use crate::engine::{PlaybackState, SubtitleCue};
 use jni::objects::GlobalRef;
 use serde::Serialize;
@@ -13,7 +12,6 @@ pub struct CallbackDispatcher { kotlin_callback: GlobalRef }
 
 impl CallbackDispatcher {
     pub fn new(kotlin_callback: GlobalRef) -> Self { Self { kotlin_callback } }
-
     pub fn on_prepared(&self, duration_us: i64) {
         let json = serde_json::to_string(&PreparedPayload { event: "prepared", duration_us }).unwrap_or_default();
         self.call_kotlin("onPrepared", &json);
@@ -31,7 +29,6 @@ impl CallbackDispatcher {
         let json = serde_json::to_string(&CuesPayload { event: "cues", cues: entries }).unwrap_or_default();
         self.call_kotlin("onSubtitleCues", &json);
     }
-
     fn call_kotlin(&self, method_name: &str, json: &str) {
         let obj = self.kotlin_callback.as_obj();
         let jvm = unsafe { jni::JavaVM::from_raw(obj.as_raw() as *mut _) };
