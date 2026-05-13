@@ -1,180 +1,209 @@
-use crate::error::{EngineError, EngineResult};
-use std::fs::File;
-use std::sync::Mutex;
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::core::units::Time;
+use crate::engine::MediaEngine;
+use jni::objects::{JClass, JObject, JString};
+use jni::JNIEnv;
 
-#[derive(Debug, Clone)]
-pub struct AudioConfig {
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub format: AudioSampleFormat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioSampleFormat {
-    S16,
-    F32,
-}
-
-static DECODER_STATE: Mutex<DecoderState> = Mutex::new(DecoderState::Uninitialized);
-
-enum DecoderState {
-    Uninitialized,
-    Initialized {
-        format: Box<dyn FormatReader>,
-        track_id: u32,
-        decoder: Box<dyn symphonia::core::codecs::Decoder>,
-        duration_us: i64,
-    },
-}
-
-unsafe impl Send for DecoderState {}
-
-pub fn init(uri: &str) -> EngineResult<(i64, AudioConfig)> {
-    let mut guard = DECODER_STATE.lock().unwrap();
-    *guard = DecoderState::Uninitialized;
-
-    let file =
-        File::open(uri).map_err(|e| EngineError::SourceNotFound(format!("Failed to open: {}", e)))?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    let probed = symphonia::default::get_probe()
-        .format(
-            &Hint::new(),
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|e| EngineError::SourceNotFound(format!("Probe failed: {}", e)))?;
-    let format = probed.format;
-    let decoder_opts = DecoderOptions::default();
-
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .ok_or(EngineError::DecoderInitFailed)?;
-    let track_id = track.id;
-    let params = &track.codec_params;
-
-    let decoder = symphonia::default::get_codecs()
-        .make(params, &decoder_opts)
-        .map_err(|e| {
-            log::error!("Decoder creation failed: {}", e);
-            EngineError::DecoderInitFailed
-        })?;
-
-    let audio_config = AudioConfig {
-        sample_rate: params.sample_rate.unwrap_or(48000),
-        channels: params.channels.map(|c| c.count() as u16).unwrap_or(2),
-        format: AudioSampleFormat::F32,
+macro_rules! engine_mut {
+    ($ptr:expr) => {
+        unsafe { ($ptr as *mut MediaEngine).as_mut() }
     };
-
-    *guard = DecoderState::Initialized {
-        format,
-        track_id,
-        decoder,
-        duration_us: 0,
-    };
-    Ok((0, audio_config))
 }
 
-pub fn decode_audio_frame() -> Option<DecodedAudioFrame> {
-    let mut guard = DECODER_STATE.lock().unwrap();
-    if let DecoderState::Initialized {
-        ref mut format,
-        track_id,
-        ref mut decoder,
-        ..
-    } = *guard
-    {
-        loop {
-            let packet = match format.next_packet() {
-                Ok(p) => p,
-                Err(_) => return None,
-            };
-            if packet.track_id() != track_id {
-                continue;
-            }
-            match decoder.decode(&packet) {
-                Ok(buf) => {
-                    let spec = *buf.spec();
-                    let frames = buf.frames();
-                    let mut sb = SampleBuffer::<f32>::new(frames as u64, spec);
-                    sb.copy_interleaved_ref(buf);
-                    let data: Vec<u8> = bytemuck::cast_slice(sb.samples()).to_vec();
-                    return Some(DecodedAudioFrame {
-                        data,
-                        samples: frames as u32,
-                        sample_rate: spec.rate,
-                        channels: spec.channels.count() as u16,
-                    });
-                }
-                Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
-                Err(_) => return None,
-            }
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeInit(
+    _: JNIEnv,
+    _: JClass,
+) -> i64 {
+    crate::init_logger();
+    Box::into_raw(Box::new(MediaEngine::new())) as i64
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeDestroy(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) {
+    if ptr != 0 {
+        unsafe {
+            drop(Box::from_raw(ptr as *mut MediaEngine));
         }
     }
-    None
 }
 
-pub fn decode_video_frame() -> Option<DecodedVideoFrame> {
-    None
-}
-
-pub fn flush() {
-    let mut guard = DECODER_STATE.lock().unwrap();
-    if let DecoderState::Initialized {
-        ref mut format,
-        ref mut decoder,
-        ..
-    } = *guard
-    {
-        decoder.reset();
-        let _ = format.seek(
-            SeekMode::Accurate,
-            SeekTo::Time {
-                time: Time::from(0),
-                track_id: None,
-            },
-        );
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSetDataSource(
+    mut env: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    uri: JString,
+) -> u8 {
+    if let Ok(jstr) = env.get_string(&uri) {
+        let s: String = jstr.into();
+        engine_mut!(ptr)
+            .map(|e| e.set_data_source(&s).is_ok() as u8)
+            .unwrap_or(0)
+    } else {
+        0
     }
 }
 
-pub fn get_duration() -> i64 {
-    0
-}
-pub fn set_render_target(_surface: *mut std::ffi::c_void) {}
-
-#[derive(Debug, Clone)]
-pub struct DecodedVideoFrame {
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-    pub pts_us: i64,
-}
-#[derive(Debug, Clone)]
-pub struct DecodedAudioFrame {
-    pub data: Vec<u8>,
-    pub samples: u32,
-    pub sample_rate: u32,
-    pub channels: u16,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_flush() {
-        flush();
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativePrepare(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.prepare();
     }
-    #[test]
-    fn test_duration() {
-        assert_eq!(get_duration(), 0);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativePlay(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.play();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativePause(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.pause();
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSeekTo(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    pos: i64,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.seek_to(pos);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeGetCurrentPosition(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) -> i64 {
+    unsafe {
+        (ptr as *const MediaEngine)
+            .as_ref()
+            .map_or(0, |e| e.get_current_position())
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeGetDuration(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+) -> i64 {
+    unsafe {
+        (ptr as *const MediaEngine)
+            .as_ref()
+            .map_or(0, |e| e.get_duration())
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSetSurface(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    _surface: JObject,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.set_surface(std::ptr::null_mut());
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeLoadSubtitle(
+    mut env: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    path: JString,
+) -> u8 {
+    if let Ok(jstr) = env.get_string(&path) {
+        let s: String = jstr.into();
+        engine_mut!(ptr)
+            .map(|e| e.load_subtitle(&s).is_ok() as u8)
+            .unwrap_or(0)
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSetSubtitleOffset(
+    _: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    ms: i64,
+) {
+    if let Some(e) = engine_mut!(ptr) {
+        e.set_subtitle_offset(ms);
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSetSubtitleFont(
+    mut env: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    path: JString,
+) {
+    if let Ok(jstr) = env.get_string(&path) {
+        let s: String = jstr.into();
+        if let Some(e) = engine_mut!(ptr) {
+            e.set_subtitle_font(&s);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeLoadPlugin(
+    mut env: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    path: JString,
+) -> u8 {
+    if let Ok(jstr) = env.get_string(&path) {
+        let s: String = jstr.into();
+        engine_mut!(ptr)
+            .map(|e| e.load_plugin(&s).is_ok() as u8)
+            .unwrap_or(0)
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_watermelon_player_rust_WatermelonCore_nativeSetEventCallback(
+    env: JNIEnv,
+    _: JClass,
+    ptr: i64,
+    cb: JObject,
+) {
+    let g = if cb.is_null() {
+        None
+    } else {
+        env.new_global_ref(cb).ok()
+    };
+    if let Some(e) = engine_mut!(ptr) {
+        e.set_event_callback(g);
     }
 }
