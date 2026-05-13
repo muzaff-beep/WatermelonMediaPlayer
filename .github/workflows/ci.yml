@@ -24,6 +24,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Install FFmpeg build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm pkg-config
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
