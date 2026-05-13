@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-watermelon-plugin = { path = "../codec-plugin" }
-# Add later: ffmpeg-next, libloading, etc.
+ffmpeg-next = { version = "6.0", features = ["static", "build-from-source", "codec", "format", "software-resampling", "software-scaling"] }
