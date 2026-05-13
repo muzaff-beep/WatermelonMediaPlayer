@@ -1,0 +1,8 @@
+[package]
+name = "watermelon-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+watermelon-plugin = { path = "../codec-plugin" }
+# Add later: ffmpeg-next, libloading, etc.
