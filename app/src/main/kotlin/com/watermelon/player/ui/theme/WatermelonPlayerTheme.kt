@@ -1,6 +1,4 @@
 // app/src/main/kotlin/com/watermelon/player/ui/theme/WatermelonPlayerTheme.kt
-// Compose Material3 theme with Persian/RTL support. Manifesto Handover §4.
-
 package com.watermelon.player.ui.theme
 
 import android.app.Activity
@@ -18,15 +16,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 
-// Persian fonts loaded from assets/fonts/ per Handover §4
-val VazirmatnFamily = FontFamily(
-    Font("fonts/vazir.ttf", FontWeight.Normal),
-    Font("fonts/vazir.ttf", FontWeight.Bold)
-)
-val YekanFamily = FontFamily(
-    Font("fonts/yekan.ttf", FontWeight.Normal),
-    Font("fonts/yekan.ttf", FontWeight.Bold)
-)
+val VazirmatnFamily: FontFamily
+    @Composable
+    get() {
+        val assets = LocalContext.current.assets
+        return FontFamily(
+            Font("fonts/vazir.ttf", assets, FontWeight.Normal),
+            Font("fonts/vazir.ttf", assets, FontWeight.Bold)
+        )
+    }
+
+val YekanFamily: FontFamily
+    @Composable
+    get() {
+        val assets = LocalContext.current.assets
+        return FontFamily(
+            Font("fonts/yekan.ttf", assets, FontWeight.Normal),
+            Font("fonts/yekan.ttf", assets, FontWeight.Bold)
+        )
+    }
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFF4CAF50),
@@ -52,10 +60,6 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Color(0xFF212121)
 )
 
-/**
- * Top-level theme composable. Applies RTL layout for Persian, Material3 theming,
- * and sets the status bar color to match the background.
- */
 @Composable
 fun WatermelonPlayerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
