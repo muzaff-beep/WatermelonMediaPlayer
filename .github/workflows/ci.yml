@@ -60,32 +60,34 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      - name: Copy APK to root folder
+      - name: Copy APK to Pubs/ folder
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Watermelon-debug.apk
+          mkdir -p Pubs
+          cp app/build/outputs/apk/debug/app-debug.apk Pubs/wmp.apk
 
-      - name: Commit and push APK (main branch pushes only)
+      - name: Attempt to commit and push APK (non‑fatal if write permission missing)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git stash push --include-untracked -m "auto-stash"
-          git pull --rebase origin main
+          # Stash any local changes and pull latest
+          git stash push --include-untracked -m "auto-stash" || true
+          git pull --rebase origin main || true
+          git stash pop || true
 
-          git stash pop
-
-          git add Watermelon-debug.apk
+          git add Pubs/wmp.apk
           if ! git diff --staged --quiet; then
             git commit -m "Auto-commit debug APK [skip ci]"
-            git push
+            git push || echo "WARNING: git push failed (permission denied). APK available as artifact."
           fi
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: wmp-debug
+          path: Pubs/wmp.apk
 
       - name: Build release APK
         env:
@@ -98,7 +100,8 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
             export KEYSTORE_PATH="$(pwd)/keystore.jks"
             ./gradlew assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk Watermelon-release.apk
+            mkdir -p Pubs
+            cp app/build/outputs/apk/release/app-release.apk Pubs/wmp-release.apk
             echo "KEYSTORE_EXISTS=true" >> $GITHUB_ENV
           else
             echo "No keystore secrets configured. Skipping release APK build."
@@ -109,16 +112,16 @@ jobs:
         if: env.KEYSTORE_EXISTS == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/app-release.apk
+          name: wmp-release
+          path: Pubs/wmp-release.apk
 
-      - name: Create Release and Upload APKs
+      - name: Create GitHub Release and upload APKs (only on tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+            Pubs/wmp.apk
+            Pubs/wmp-release.apk
           draft: false
           prerelease: false
         env:
