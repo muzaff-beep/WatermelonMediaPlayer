@@ -1,10 +1,8 @@
 // app/src/main/kotlin/com/watermelon/player/storage/UnifiedStorageAccess.kt
-// Abstraction over Android MediaStore and Storage Access Framework.
-// Provides a unified API for scanning and accessing video files.
-
 package com.watermelon.player.storage
 
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
@@ -15,18 +13,11 @@ import android.util.Log
 import com.watermelon.player.database.VideoEntity
 import java.io.File
 
-/**
- * Unified access layer for video files across MediaStore, SAF, and direct file paths.
- */
 class UnifiedStorageAccess(private val context: Context) {
 
     private val TAG = "UnifiedStorageAccess"
     private val contentResolver: ContentResolver = context.contentResolver
 
-    /**
-     * Query all video files from MediaStore.
-     * Returns a list of VideoEntity ready for database insertion.
-     */
     fun queryMediaStore(): List<VideoEntity> {
         val videos = mutableListOf<VideoEntity>()
         val projection = arrayOf(
@@ -96,11 +87,6 @@ class UnifiedStorageAccess(private val context: Context) {
         return videos
     }
 
-    /**
-     * Query videos from a specific directory using SAF or direct file access.
-     * @param directoryUri URI of the directory to scan
-     * @param recursive whether to scan subdirectories
-     */
     fun queryDirectory(directoryUri: Uri, recursive: Boolean = true): List<VideoEntity> {
         val videos = mutableListOf<VideoEntity>()
         try {
@@ -119,9 +105,6 @@ class UnifiedStorageAccess(private val context: Context) {
         return videos
     }
 
-    /**
-     * Scan a direct file directory for video files.
-     */
     private fun scanDirectory(dir: File, recursive: Boolean, results: MutableList<VideoEntity>) {
         val videoExtensions = setOf("mp4", "mkv", "avi", "mov", "webm", "ts", "m2ts", "flv", "wmv", "3gp")
         val files = dir.listFiles() ?: return
@@ -149,9 +132,6 @@ class UnifiedStorageAccess(private val context: Context) {
         }
     }
 
-    /**
-     * Scan a content URI directory using SAF.
-     */
     private fun scanContentDirectory(uri: Uri, recursive: Boolean, results: MutableList<VideoEntity>) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
             uri,
@@ -194,9 +174,6 @@ class UnifiedStorageAccess(private val context: Context) {
         }
     }
 
-    /**
-     * Map file extension to MIME type.
-     */
     private fun mimeTypeForExtension(ext: String): String = when (ext) {
         "mp4" -> "video/mp4"
         "mkv" -> "video/x-matroska"
