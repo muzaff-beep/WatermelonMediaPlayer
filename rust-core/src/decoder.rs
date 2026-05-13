@@ -139,7 +139,7 @@ pub fn flush() {
         let _ = format.seek(
             SeekMode::Accurate,
             SeekTo::Time {
-                time: Time::from(0),
+                time: Time::from(0u64),
                 track_id: None,
             },
         );
