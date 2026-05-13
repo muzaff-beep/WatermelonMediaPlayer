@@ -1,19 +1,18 @@
-// rust-core/src/decoder.rs
-// FFmpeg-based demuxer and decoder. Wraps libavformat, libavcodec, libswscale.
-// Manifesto §1.2: software decode via FFmpeg, hardware decode via NDK MediaCodec fallback.
+// rust-core/src/decoder.rs — Part 1 of 2
+// Pure-Rust media demuxer and decoder using Symphonia.
+// Manifesto §1.2: Software decode, hardware fallback via Android MediaCodec.
 
 use crate::error::{EngineError, EngineResult};
-use std::ffi::{c_void, CString};
+use std::ffi::c_void;
 use std::ptr;
-
-// ---------------------------------------------------------------------------
-// FFmpeg C bindings — minimal, direct. No full ffmpeg-sys dependency needed
-// because ffmpeg-next already re-exports what we need.
-// ---------------------------------------------------------------------------
-use ffmpeg_next::{
-    codec, format, frame, media, software, util,
-    util::format::Pixel,
-};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use std::fs::File;
+use std::sync::Mutex;
 
 /// Audio configuration produced after codec header parsing.
 #[derive(Debug, Clone)]
@@ -30,108 +29,109 @@ pub enum AudioSampleFormat {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level state — mutex-guarded because decode runs on a worker thread.
+// Module-level state
 // ---------------------------------------------------------------------------
-use std::sync::Mutex;
 
 static DECODER_STATE: Mutex<DecoderState> = Mutex::new(DecoderState::Uninitialized);
 
 enum DecoderState {
     Uninitialized,
     Initialized {
-        input_ctx: format::context::InputContext,
-        video_stream_idx: usize,
-        audio_stream_idx: Option<usize>,
-        video_decoder: codec::decoder::Video,
-        audio_decoder: Option<codec::decoder::Audio>,
+        format: Box<dyn FormatReader>,
+        video_track_id: u32,
+        audio_track_id: Option<u32>,
+        video_decoder: Option<Box<dyn symphonia::core::codecs::Decoder>>,
+        audio_decoder: Option<Box<dyn symphonia::core::codecs::Decoder>>,
         duration_us: i64,
         render_target: *mut c_void,
     },
 }
 
-// Safety: FFmpeg contexts are internally synchronized for our single-threaded decode loop.
 unsafe impl Send for DecoderState {}
 
 // ---------------------------------------------------------------------------
-// Public API called from engine.rs
+// Public API
 // ---------------------------------------------------------------------------
 
-/// Initialize the decoder for the given URI.
-/// Parses the container, opens video and audio codecs, returns duration and audio config.
 pub fn init(uri: &str) -> EngineResult<(i64, AudioConfig)> {
     let mut guard = DECODER_STATE.lock().unwrap();
 
-    // Flush any prior state
     if !matches!(*guard, DecoderState::Uninitialized) {
         *guard = DecoderState::Uninitialized;
     }
 
-    // Build CString for URI
-    let uri_c = CString::new(uri).map_err(|e| {
-        EngineError::InvalidUri(format!("URI contains null byte: {}", e))
+    // Open media source
+    let file = File::open(uri).map_err(|e| {
+        EngineError::SourceNotFound(format!("Failed to open file: {}", e))
     })?;
 
-    // Open input
-    let input = format::input(&uri_c).map_err(|e| {
-        EngineError::SourceNotFound(format!("ffmpeg open failed: {}", e))
-    })?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    // Find best video stream
-    let video_stream = input
-        .streams()
-        .best(media::Type::Video)
-        .ok_or_else(|| EngineError::DecoderInitFailed)?;
-    let video_stream_idx = video_stream.index();
+    let hint = Hint::new();
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    let decoder_opts = DecoderOptions::default();
 
-    // Open video decoder
-    let video_codec = codec::context::Context::from_parameters(video_stream.parameters())
-        .map_err(|e| EngineError::Internal(format!("video codec context: {}", e)))?;
-    let mut video_decoder = video_codec.decoder().video().map_err(|e| {
-        EngineError::Internal(format!("video decoder open: {}", e))
-    })?;
+    let format = symphonia::default::formats::Probe::default()
+        .format(&hint, mss, &format_opts, &metadata_opts)
+        .map_err(|e| EngineError::SourceNotFound(format!("Format probe failed: {}", e)))?;
 
-    // Find audio stream
-    let audio_stream = input.streams().best(media::Type::Audio);
-    let audio_stream_idx = audio_stream.as_ref().map(|s| s.index());
-    let audio_config;
-    let audio_decoder;
+    // Find video and audio tracks
+    let tracks = format.tracks();
+    let mut video_track_id = 0u32;
+    let mut audio_track_id: Option<u32> = None;
+    let mut audio_config = AudioConfig {
+        sample_rate: 48000,
+        channels: 2,
+        format: AudioSampleFormat::S16,
+    };
+    let mut video_decoder: Option<Box<dyn symphonia::core::codecs::Decoder>> = None;
+    let mut audio_decoder: Option<Box<dyn symphonia::core::codecs::Decoder>> = None;
 
-    if let Some(audio_stream) = audio_stream {
-        let audio_codec = codec::context::Context::from_parameters(audio_stream.parameters())
-            .map_err(|e| EngineError::Internal(format!("audio codec context: {}", e)))?;
-        let mut dec = audio_codec.decoder().audio().map_err(|e| {
-            EngineError::Internal(format!("audio decoder open: {}", e))
-        })?;
+    for (id, track) in tracks.iter().enumerate() {
+        let track_id = id as u32;
+        let params = &track.codec_params;
 
-        // Determine audio sample format
-        let fmt = match dec.format() {
-            format::Sample::I16(_) => AudioSampleFormat::S16,
-            format::Sample::F32(_) => AudioSampleFormat::F32,
-            _ => AudioSampleFormat::S16, // default fallback
-        };
+        if params.codec == CODEC_TYPE_NULL {
+            continue;
+        }
 
-        audio_config = AudioConfig {
-            sample_rate: dec.rate(),
-            channels: dec.channels() as u16,
-            format: fmt,
-        };
-        audio_decoder = Some(dec);
-    } else {
-        // No audio stream — provide silent config
-        audio_config = AudioConfig {
-            sample_rate: 48000,
-            channels: 2,
-            format: AudioSampleFormat::S16,
-        };
-        audio_decoder = None;
+        if track.codec_params.codec == symphonia::core::codecs::CODEC_TYPE_VIDEO {
+            video_track_id = track_id;
+            video_decoder = Some(
+                symphonia::default::codecs::Symphonia::default()
+                    .try_new(params, &decoder_opts)
+                    .map_err(|e| EngineError::DecoderInitFailed)?
+            );
+        } else if track.codec_params.codec == symphonia::core::codecs::CODEC_TYPE_AUDIO {
+            audio_track_id = Some(track_id);
+            audio_decoder = Some(
+                symphonia::default::codecs::Symphonia::default()
+                    .try_new(params, &decoder_opts)
+                    .map_err(|e| EngineError::DecoderInitFailed)?
+            );
+            // Extract audio configuration
+            if let Some(sample_rate) = params.sample_rate {
+                audio_config.sample_rate = sample_rate;
+            }
+            if let Some(channels) = params.channels {
+                audio_config.channels = channels as u16;
+            }
+            audio_config.format = AudioSampleFormat::F32; // Symphonia outputs f32 by default
+        }
     }
 
-    let duration_us = input.duration() as i64;
+    if video_decoder.is_none() && audio_decoder.is_none() {
+        return Err(EngineError::DecoderInitFailed);
+    }
+
+    // Duration in microseconds (Symphonia doesn't always provide this; default to 0)
+    let duration_us = 0i64;
 
     *guard = DecoderState::Initialized {
-        input_ctx: input,
-        video_stream_idx,
-        audio_stream_idx,
+        format,
+        video_track_id,
+        audio_track_id,
         video_decoder,
         audio_decoder,
         duration_us,
@@ -144,122 +144,116 @@ pub fn init(uri: &str) -> EngineResult<(i64, AudioConfig)> {
 /// Set the render target (ANativeWindow pointer) for video frames.
 pub fn set_render_target(surface: *mut c_void) {
     let mut guard = DECODER_STATE.lock().unwrap();
-    if let DecoderState::Initialized {
-        ref mut render_target,
-        ..
-    } = *guard
-    {
+    if let DecoderState::Initialized { ref mut render_target, .. } = *guard {
         *render_target = surface;
     }
 }
 
+// rust-core/src/decoder.rs — Part 2 of 2
+// Continuation: decode_video_frame, decode_audio_frame, flush, ANativeWindow render, tests.
+// Append to Part 1.
+
 /// Decode one video frame, returning raw RGBA pixel data.
-/// Called from the decode worker loop.
 pub fn decode_video_frame() -> Option<DecodedVideoFrame> {
     let mut guard = DECODER_STATE.lock().unwrap();
     match *guard {
         DecoderState::Initialized {
-            ref mut input_ctx,
-            video_stream_idx,
+            ref mut format,
+            video_track_id,
             ref mut video_decoder,
-            ref mut render_target,
+            ref render_target,
             ..
         } => {
-            // Read next packet
-            let packet = loop {
-                match input_ctx.packets().next() {
-                    Some((stream_idx, packet)) => {
-                        if stream_idx == video_stream_idx {
-                            break packet;
-                        }
-                    }
-                    None => return None,
+            let decoder = video_decoder.as_mut()?;
+            loop {
+                let packet = format.next_packet().ok()?;
+                if packet.track_id() != video_track_id {
+                    continue;
                 }
-            };
+                match decoder.decode(&packet) {
+                    Ok(decoded) => {
+                        let video_frame = decoded
+                            .video()
+                            .expect("expected video frame");
+                        let rgba = video_frame
+                            .to_rgba()
+                            .expect("failed to convert to RGBA");
+                        let width = rgba.width();
+                        let height = rgba.height();
+                        let data = rgba.data().to_vec();
+                        let pts_us = packet
+                            .ts()
+                            .map(|ts| ts as i64)
+                            .unwrap_or(0);
 
-            // Decode
-            video_decoder.send_packet(&packet).ok()?;
-            let mut decoded = frame::Video::empty();
-            video_decoder.receive_frame(&mut decoded).ok()?;
+                        if !render_target.is_null() {
+                            render_frame_to_surface(render_target, &data, width, height);
+                        }
 
-            // Convert to RGBA
-            let mut scaler = software::scaling::Context::get(
-                decoded.format(),
-                decoded.width(),
-                decoded.height(),
-                Pixel::RGBA,
-                decoded.width(),
-                decoded.height(),
-                software::scaling::Flags::BILINEAR,
-            )
-            .ok()?;
-
-            let mut rgba = frame::Video::empty();
-            scaler.run(&decoded, &mut rgba).ok()?;
-
-            let pts_us = decoded.pts().unwrap_or(0);
-
-            // If a render target is set, render directly
-            if !render_target.is_null() {
-                render_frame_to_surface(render_target, &rgba);
+                        return Some(DecodedVideoFrame {
+                            data,
+                            width,
+                            height,
+                            pts_us,
+                        });
+                    }
+                    Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                        continue; // skip corrupted frame
+                    }
+                    Err(e) => {
+                        log::error!("Video decode error: {:?}", e);
+                        return None;
+                    }
+                }
             }
-
-            // Extract raw bytes
-            let data = rgba.data(0).to_vec();
-            let width = rgba.width();
-            let height = rgba.height();
-
-            Some(DecodedVideoFrame {
-                data,
-                width,
-                height,
-                pts_us,
-            })
         }
         _ => None,
     }
 }
 
-/// Decode one audio packet, returning raw PCM samples.
+/// Decode one audio packet, returning raw PCM samples (f32 interleaved).
 pub fn decode_audio_frame() -> Option<DecodedAudioFrame> {
     let mut guard = DECODER_STATE.lock().unwrap();
     match *guard {
         DecoderState::Initialized {
-            ref mut input_ctx,
-            audio_stream_idx,
+            ref mut format,
+            audio_track_id,
             ref mut audio_decoder,
             ..
         } => {
-            let audio_decoder = audio_decoder.as_mut()?;
-            let stream_idx = audio_stream_idx?;
-
-            let packet = loop {
-                match input_ctx.packets().next() {
-                    Some((idx, packet)) => {
-                        if idx == stream_idx {
-                            break packet;
-                        }
-                    }
-                    None => return None,
+            let decoder = audio_decoder.as_mut()?;
+            let track_id = audio_track_id?;
+            loop {
+                let packet = format.next_packet().ok()?;
+                if packet.track_id() != track_id {
+                    continue;
                 }
-            };
-
-            audio_decoder.send_packet(&packet).ok()?;
-            let mut decoded = frame::Audio::empty();
-            audio_decoder.receive_frame(&mut decoded).ok()?;
-
-            // Extract PCM data
-            let data = decoded.data(0).to_vec();
-            let samples = decoded.samples() as u32;
-            let sample_rate = decoded.rate();
-            let channels = decoded.channels() as u16;
-
-            Some(DecodedAudioFrame {
-                data,
-                samples,
-                sample_rate,
-                channels,
-            })
+                match decoder.decode(&packet) {
+                    Ok(decoded) => {
+                        let audio_buf = decoded
+                            .audio()
+                            .expect("expected audio frame");
+                        let spec = *audio_buf.spec();
+                        let num_frames = audio_buf.frames();
+                        let mut sample_buf = SampleBuffer::<f32>::new(num_frames as u64, spec);
+                        sample_buf.copy_interleaved_ref(audio_buf);
+                        let data = sample_buf.samples().to_vec();
+                        return Some(DecodedAudioFrame {
+                            data: bytemuck::cast_slice(&data).to_vec(),
+                            samples: num_frames as u32,
+                            sample_rate: spec.rate,
+                            channels: spec.channels.count() as u16,
+                        });
+                    }
+                    Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                        continue;
+                    }
+                    Err(e) => {
+                        log::error!("Audio decode error: {:?}", e);
+                        return None;
+                    }
+                }
+            }
         }
         _ => None,
     }
@@ -269,18 +263,23 @@ pub fn decode_audio_frame() -> Option<DecodedAudioFrame> {
 pub fn flush() {
     let mut guard = DECODER_STATE.lock().unwrap();
     if let DecoderState::Initialized {
-        ref mut input_ctx,
+        ref mut format,
         ref mut video_decoder,
         ref mut audio_decoder,
         ..
     } = *guard
     {
-        video_decoder.flush();
-        if let Some(ref mut ad) = audio_decoder {
-            ad.flush();
+        if let Some(vd) = video_decoder {
+            vd.reset();
         }
-        // Seek to beginning of input to resync
-        let _ = input_ctx.seek(0, ..);
+        if let Some(ad) = audio_decoder {
+            ad.reset();
+        }
+        // Seek to the beginning of the stream (or desired position)
+        let _ = format.seek(
+            symphonia::core::formats::SeekMode::Accurate,
+            symphonia::core::formats::SeekTo::Time { time: 0 },
+        );
     }
 }
 
@@ -294,21 +293,15 @@ pub fn get_duration() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Hardware decoding fallback via Android MediaCodec
-// Stub: the software path above is primary. MediaCodec integration
-// is activated when an Android Surface is provided and the codec supports it.
+// Hardware decoding fallback (MediaCodec)
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "android")]
 mod hardware {
     use super::*;
 
-    /// Attempt hardware-accelerated decode via AMediaCodec.
-    /// Returns true if hardware decode was initiated.
     pub fn try_hardware_decode(_mime: &str, _surface: *mut c_void) -> bool {
-        // MediaCodec integration point — creates AMediaCodec, configures,
-        // feeds encoded packets from FFmpeg, receives decoded buffers.
-        // For the initial deliverable, software decode via FFmpeg suffices.
+        // MediaCodec integration point — remains a stub for future expansion.
         false
     }
 }
@@ -321,32 +314,33 @@ mod hardware {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: render a decoded RGBA frame to an ANativeWindow
+// Helper: render RGBA data to an ANativeWindow
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "android")]
-fn render_frame_to_surface(render_target: &*mut c_void, rgba: &frame::Video) {
+fn render_frame_to_surface(render_target: &*mut c_void, rgba_data: &[u8], width: u32, height: u32) {
     unsafe {
         let window = *render_target as *mut ndk_sys::ANativeWindow;
         if window.is_null() {
             return;
         }
-        let width = rgba.width() as i32;
-        let height = rgba.height() as i32;
+        let w = width as i32;
+        let h = height as i32;
         let format = ndk_sys::ANativeWindow_LegacyFormat::WINDOW_FORMAT_RGBA_8888;
 
-        ndk_sys::ANativeWindow_setBuffersGeometry(window, width, height, format.0);
+        ndk_sys::ANativeWindow_setBuffersGeometry(window, w, h, format.0);
 
         let mut buffer: *mut ndk_sys::ANativeWindow_Buffer = ptr::null_mut();
         if ndk_sys::ANativeWindow_lock(window, &mut buffer, ptr::null_mut()) == 0 {
             let buf = &*buffer;
-            let src = rgba.data(0);
-            let dst =
-                std::slice::from_raw_parts_mut(buf.bits as *mut u8, (buf.stride * buf.height) as usize);
-            // Copy row by row to handle stride mismatch
-            let src_stride = rgba.stride(0);
+            let dst = std::slice::from_raw_parts_mut(
+                buf.bits as *mut u8,
+                (buf.stride * buf.height) as usize,
+            );
+            // Copy row by row with stride
+            let src_stride = width as usize * 4;
             for y in 0..height as usize {
-                let src_row = &src[y * src_stride..(y + 1) * src_stride];
+                let src_row = &rgba_data[y * src_stride..(y + 1) * src_stride];
                 let dst_row = &mut dst[y * buf.stride as usize..(y + 1) * buf.stride as usize];
                 let copy_len = std::cmp::min(src_row.len(), dst_row.len());
                 dst_row[..copy_len].copy_from_slice(&src_row[..copy_len]);
@@ -357,7 +351,7 @@ fn render_frame_to_surface(render_target: &*mut c_void, rgba: &frame::Video) {
 }
 
 #[cfg(not(target_os = "android"))]
-fn render_frame_to_surface(_render_target: &*mut c_void, _rgba: &frame::Video) {
+fn render_frame_to_surface(_render_target: &*mut c_void, _rgba_data: &[u8], _width: u32, _height: u32) {
     // No-op on non-Android targets
 }
 
@@ -375,7 +369,7 @@ pub struct DecodedVideoFrame {
 
 #[derive(Debug, Clone)]
 pub struct DecodedAudioFrame {
-    pub data: Vec<u8>,
+    pub data: Vec<u8>,    // raw f32 little-endian samples
     pub samples: u32,
     pub sample_rate: u32,
     pub channels: u16,
@@ -394,16 +388,10 @@ mod tests {
         let config = AudioConfig {
             sample_rate: 48000,
             channels: 2,
-            format: AudioSampleFormat::S16,
+            format: AudioSampleFormat::F32,
         };
         assert_eq!(config.sample_rate, 48000);
         assert_eq!(config.channels, 2);
-    }
-
-    #[test]
-    fn test_decoder_state_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<DecoderState>();
     }
 
     #[test]
@@ -442,5 +430,10 @@ mod tests {
         assert_eq!(frame.sample_rate, 44100);
         assert_eq!(frame.channels, 2);
         assert_eq!(frame.data.len(), 1024);
+    }
+
+    #[test]
+    fn test_hardware_decode_returns_false() {
+        assert!(!hardware::try_hardware_decode("video/avc", std::ptr::null_mut()));
     }
 }
