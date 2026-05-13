@@ -60,9 +60,9 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      - name: Copy APK to app/
+      - name: Copy APK to root folder
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk app/Watermelon-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Watermelon-debug.apk
 
       - name: Commit and push APK (main branch pushes only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -75,7 +75,7 @@ jobs:
 
           git stash pop
 
-          git add app/Watermelon-debug.apk
+          git add Watermelon-debug.apk
           if ! git diff --staged --quiet; then
             git commit -m "Auto-commit debug APK [skip ci]"
             git push
@@ -98,6 +98,7 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
             export KEYSTORE_PATH="$(pwd)/keystore.jks"
             ./gradlew assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk Watermelon-release.apk
             echo "KEYSTORE_EXISTS=true" >> $GITHUB_ENV
           else
             echo "No keystore secrets configured. Skipping release APK build."
