@@ -1,4 +1,11 @@
+# codec-plugin/Cargo.toml
 [package]
 name = "watermelon-plugin"
 version = "0.1.0"
 edition = "2021"
+description = "Watermelon MediaPlayer – Codec plugin trait (Manifesto §3.2)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
