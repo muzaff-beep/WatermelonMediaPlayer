@@ -1,0 +1,85 @@
+name: Watermelon CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-rust:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [aarch64-linux-android, armv7-linux-androideabi]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+      - name: Build Rust core
+        run: |
+          cd rust-core
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release
+      - name: Upload .so artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-libs
+          path: app/src/main/jniLibs/
+
+  build-apk:
+    needs: build-rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Rust libs
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-libs
+          path: app/src/main/jniLibs/
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Grant gradlew permissions
+        run: chmod +x gradlew
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apk/debug
+          signingKeyBase64: ${{ secrets.SIGNING_KEY_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: watermelon-debug
+          path: app/build/outputs/apk/debug/app-debug-signed.apk
+
+  release:
+    needs: build-apk
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: watermelon-debug
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: app-debug-signed.apk
+          name: "Watermelon ${{ github.ref_name }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
