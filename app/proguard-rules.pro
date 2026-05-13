@@ -1,3 +1,0 @@
--keep class androidx.media3.** { *; }
--keep class com.watermelon.player.database.** { *; }
--dontwarn androidx.media3.**

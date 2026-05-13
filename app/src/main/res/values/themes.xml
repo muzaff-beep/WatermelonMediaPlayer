@@ -1,8 +1,0 @@
-<resources>
-    <style name="Theme.WatermelonPlayer" parent="android:Theme.Material.NoActionBar">
-        <item name="android:colorPrimary">#D32F2F</item>
-        <item name="android:colorPrimaryDark">#B71C1C</item>
-        <item name="android:colorAccent">#4CAF50</item>
-        <item name="android:windowFullscreen">false</item>
-    </style>
-</resources>
