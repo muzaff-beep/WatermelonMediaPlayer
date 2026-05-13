@@ -3,83 +3,122 @@ name: Watermelon CI
 on:
   push:
     branches: [ main ]
-    tags: [ "v*" ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build-rust:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [aarch64-linux-android, armv7-linux-androideabi]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r26d
-      - name: Build Rust core
-        run: |
-          cd rust-core
-          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release
-      - name: Upload .so artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-libs
-          path: app/src/main/jniLibs/
-
   build-apk:
-    needs: build-rust
+    name: Build Android APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Download Rust libs
-        uses: actions/download-artifact@v4
-        with:
-          name: rust-libs
-          path: app/src/main/jniLibs/
-      - name: Setup JDK 17
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
-      - name: Grant gradlew permissions
-        run: chmod +x gradlew
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
-      - name: Sign APK
-        uses: r0adkll/sign-android-release@v1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          releaseDirectory: app/build/outputs/apk/debug
-          signingKeyBase64: ${{ secrets.SIGNING_KEY_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-      - name: Upload APK artifact
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Locate Android NDK
+        id: ndk
+        run: |
+          NDK_PATH=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | sort -V | tail -1)
+          echo "Found NDK at: $NDK_PATH"
+          echo "ndk_path=$NDK_PATH" >> $GITHUB_OUTPUT
+
+      - name: Build Rust core for Android
+        working-directory: rust-core
+        run: |
+          export ANDROID_NDK_HOME="${{ steps.ndk.outputs.ndk_path }}"
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release -p watermelon-core
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Copy APK to app/
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk app/Watermelon-debug.apk
+
+      - name: Commit and push APK (main branch pushes only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git stash push --include-untracked -m "auto-stash"
+          git pull --rebase origin main
+
+          git stash pop
+
+          git add app/Watermelon-debug.apk
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-commit debug APK [skip ci]"
+            git push
+          fi
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: watermelon-debug
-          path: app/build/outputs/apk/debug/app-debug-signed.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
 
-  release:
-    needs: build-apk
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download APK
-        uses: actions/download-artifact@v4
+      - name: Build release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ "$KEYSTORE_BASE64" != "" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
+            export KEYSTORE_PATH="$(pwd)/keystore.jks"
+            ./gradlew assembleRelease
+            echo "KEYSTORE_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "No keystore secrets configured. Skipping release APK build."
+            echo "KEYSTORE_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Upload release APK artifact
+        if: env.KEYSTORE_EXISTS == 'true'
+        uses: actions/upload-artifact@v4
         with:
-          name: watermelon-debug
-      - name: Create GitHub Release
+          name: app-release
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Create Release and Upload APKs
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: app-debug-signed.apk
-          name: "Watermelon ${{ github.ref_name }}"
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
