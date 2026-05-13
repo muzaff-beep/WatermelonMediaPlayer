@@ -234,3 +234,258 @@ impl MediaEngine {
 
 // Part 1 ends here. Part 2 continues with:
 // - seek_to, set_surface, load_subtitle, set_subtitle_offset, set_subtitle_font
+
+// rust-core/src/engine.rs — Part 2 of 2
+// Continuation: seek, surface, subtitle management, plugin loading, callback registration.
+// Append to Part 1. Final file assembles to ~580 lines.
+
+impl MediaEngine {
+    // -------------------------------------------------------------------------
+    // Seek
+    // -------------------------------------------------------------------------
+
+    /// Seek to a position in microseconds. Flushes decoder and subtitle state.
+    pub fn seek_to(&mut self, position_us: i64) {
+        let mut inner = self.inner.lock().unwrap();
+        if position_us < 0 {
+            log::warn!("seek_to: negative position, clamping to 0");
+            inner.position_us = 0;
+        } else if position_us > inner.duration_us && inner.duration_us > 0 {
+            log::warn!(
+                "seek_to: position {} exceeds duration {}, clamping",
+                position_us,
+                inner.duration_us
+            );
+            inner.position_us = inner.duration_us;
+        } else {
+            inner.position_us = position_us;
+        }
+        decoder::flush();
+        if let Some(ref mut sub) = inner.subtitle_manager {
+            sub.flush();
+        }
+        log::debug!("Seeked to {} us", inner.position_us);
+    }
+
+    // -------------------------------------------------------------------------
+    // Surface
+    // -------------------------------------------------------------------------
+
+    /// Set the Android Surface for video rendering.
+    /// The pointer is an `ANativeWindow *` obtained from the Kotlin Surface object.
+    pub fn set_surface(&mut self, surface: *mut c_void) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.surface_ptr = surface;
+        if !surface.is_null() {
+            log::debug!("Surface set for video rendering");
+            decoder::set_render_target(surface);
+        } else {
+            log::debug!("Surface cleared");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Subtitle management
+    // -------------------------------------------------------------------------
+
+    /// Load a subtitle file. Supports SRT and ASS formats per Manifesto §1.2.
+    pub fn load_subtitle(&mut self, path: &str) -> EngineResult<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let font_path = inner.subtitle_font_path.clone();
+        let offset_ms = inner.subtitle_offset_ms;
+        let mut manager = SubtitleManager::new();
+        manager.load(path, font_path.as_deref())?;
+        manager.set_offset(offset_ms);
+        inner.subtitle_manager = Some(manager);
+        log::info!("Subtitle loaded: {}", path);
+        Ok(())
+    }
+
+    /// Set subtitle offset in milliseconds. Positive = delay, negative = advance.
+    pub fn set_subtitle_offset(&mut self, offset_ms: i64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.subtitle_offset_ms = offset_ms;
+        if let Some(ref mut sub) = inner.subtitle_manager {
+            sub.set_offset(offset_ms);
+        }
+        log::debug!("Subtitle offset set to {} ms", offset_ms);
+    }
+
+    /// Set the font path for GPU-rendered subtitles.
+    /// Path is relative to APK assets, resolved by Kotlin layer.
+    pub fn set_subtitle_font(&mut self, font_path: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.subtitle_font_path = Some(font_path.to_owned());
+        if let Some(ref mut sub) = inner.subtitle_manager {
+            sub.set_font_path(font_path);
+        }
+        log::debug!("Subtitle font path set: {}", font_path);
+    }
+
+    // -------------------------------------------------------------------------
+    // Plugin management
+    // -------------------------------------------------------------------------
+
+    /// Load a codec plugin from the given shared library path.
+    /// The plugin must export `watermelon_plugin_create` per Manifesto §3.2.
+    pub fn load_plugin(&mut self, so_path: &str) -> EngineResult<()> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.plugin_host.load(so_path)?;
+        log::info!("Plugin loaded: {}", so_path);
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Callback registration
+    // -------------------------------------------------------------------------
+
+    /// Register the Kotlin callback interface.
+    /// The `GlobalRef` is stored and used to invoke `WatermelonEventCallback` methods.
+    pub fn set_event_callback(&mut self, callback: Option<GlobalRef>) {
+        let dispatcher = callback.map(CallbackDispatcher::new);
+        let mut cb = self.callback.lock().unwrap();
+        *cb = dispatcher;
+        log::debug!("Event callback registered");
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal: subtitle cue emission (called by decode thread)
+    // -------------------------------------------------------------------------
+
+    /// Query subtitle cues active at the current playback position.
+    /// Called periodically by the decode loop. Cues are emitted to Kotlin.
+    pub(crate) fn poll_subtitle_cues(&self) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(ref sub) = inner.subtitle_manager {
+            let cues = sub.cues_at(inner.position_us);
+            if !cues.is_empty() {
+                drop(inner);
+                self.emit_subtitle_cues(&cues);
+            }
+        }
+    }
+
+    /// Update internal position from decode thread progress.
+    pub(crate) fn update_position(&self, position_us: i64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.position_us = position_us;
+        if position_us >= inner.duration_us && inner.duration_us > 0 {
+            if inner.state == PlaybackState::Playing {
+                inner.state = PlaybackState::Ended;
+                drop(inner);
+                self.emit_state(PlaybackState::Ended);
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Drop safety for EngineInner
+// -----------------------------------------------------------------------------
+
+impl Drop for EngineInner {
+    fn drop(&mut self) {
+        // Release Android surface reference if held
+        if !self.surface_ptr.is_null() {
+            #[cfg(target_os = "android")]
+            unsafe {
+                let window: *mut ndk_sys::ANativeWindow = self.surface_ptr as *mut _;
+                ndk_sys::ANativeWindow_release(window);
+            }
+            self.surface_ptr = std::ptr::null_mut();
+        }
+        // Flush decoder state
+        decoder::flush();
+        // Plugin host unloads all dynamic libraries on drop
+        log::debug!("EngineInner dropped, all resources released");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Exported C ABI helpers used by jni_bridge.rs
+// -----------------------------------------------------------------------------
+
+/// Expose `Arc<Mutex<Inner>>` clone for decode/audio worker threads.
+pub(crate) fn clone_inner(engine: &MediaEngine) -> Arc<Mutex<EngineInner>> {
+    Arc::clone(&engine.inner)
+}
+
+/// Expose callback `Arc` clone for worker threads.
+pub(crate) fn clone_callback(engine: &MediaEngine) -> Arc<Mutex<Option<CallbackDispatcher>>> {
+    Arc::clone(&engine.callback)
+}
+
+// -----------------------------------------------------------------------------
+// Tests — inline, no separate test file
+// -----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_new_is_idle() {
+        let engine = MediaEngine::new();
+        assert_eq!(engine.get_duration(), 0);
+        assert_eq!(engine.get_current_position(), 0);
+    }
+
+    #[test]
+    fn test_set_data_source_rejects_empty() {
+        let mut engine = MediaEngine::new();
+        assert!(engine.set_data_source("").is_err());
+    }
+
+    #[test]
+    fn test_set_data_source_accepts_valid_uri() {
+        let mut engine = MediaEngine::new();
+        assert!(engine.set_data_source("file:///sdcard/test.mp4").is_ok());
+    }
+
+    #[test]
+    fn test_play_pause_state_machine() {
+        let mut engine = MediaEngine::new();
+        engine.set_data_source("file:///sdcard/test.mp4").unwrap();
+        engine.play();
+        engine.pause();
+        assert_eq!(engine.get_duration(), 0);
+    }
+
+    #[test]
+    fn test_seek_clamps_negative() {
+        let mut engine = MediaEngine::new();
+        engine.seek_to(-500);
+        assert_eq!(engine.get_current_position(), 0);
+    }
+
+    #[test]
+    fn test_seek_within_range() {
+        let mut engine = MediaEngine::new();
+        engine.set_data_source("file:///sdcard/test.mp4").unwrap();
+        engine.seek_to(1_500_000);
+        assert_eq!(engine.get_current_position(), 1_500_000);
+    }
+
+    #[test]
+    fn test_subtitle_offset_stored() {
+        let mut engine = MediaEngine::new();
+        engine.set_subtitle_offset(250);
+        engine.set_subtitle_offset(-100);
+    }
+
+    #[test]
+    fn test_set_subtitle_font_path() {
+        let mut engine = MediaEngine::new();
+        engine.set_subtitle_font("fonts/vazir.ttf");
+    }
+
+    #[test]
+    fn test_playback_state_enum_values() {
+        assert_eq!(PlaybackState::Idle as i32, 0);
+        assert_eq!(PlaybackState::Preparing as i32, 1);
+        assert_eq!(PlaybackState::Playing as i32, 2);
+        assert_eq!(PlaybackState::Paused as i32, 3);
+        assert_eq!(PlaybackState::Ended as i32, 4);
+        assert_eq!(PlaybackState::Error as i32, 5);
+    }
+}
