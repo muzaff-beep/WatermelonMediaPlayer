@@ -15,7 +15,7 @@ log = "0.4.20"
 android_logger = "0.13.3"
 ffmpeg-next = { version = "6.0", features = [
     "static",
-    "build-from-source",
+    "build",
     "codec",
     "format",
     "software-resampling",
