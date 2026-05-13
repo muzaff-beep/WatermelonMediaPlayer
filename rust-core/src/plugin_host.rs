@@ -1,11 +1,7 @@
-// rust-core/src/plugin_host.rs
 use crate::error::{EngineError, EngineResult};
 use std::collections::HashMap;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_void, CString};
 use std::path::Path;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)] #[repr(u8)] pub enum PluginPixelFormat { YUV420P = 0, NV12 = 1, RGBA8 = 2 }
-#[derive(Debug, Clone)] pub struct PluginDecodedFrame { pub width: u32, pub height: u32, pub pixel_format: PluginPixelFormat, pub data: Vec<u8>, pub pts_us: i64 }
 
 pub trait CodecPlugin: Send + Sync {
     fn codec_name(&self) -> &str;
@@ -16,6 +12,15 @@ pub trait CodecPlugin: Send + Sync {
 
 pub type PluginCreateFn = extern "C" fn() -> *mut dyn CodecPlugin;
 
+#[derive(Debug, Clone)]
+pub struct PluginDecodedFrame {
+    pub width: u32, pub height: u32, pub pixel_format: PluginPixelFormat, pub data: Vec<u8>, pub pts_us: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PluginPixelFormat { YUV420P = 0, NV12 = 1, RGBA8 = 2 }
+
 pub struct PluginHost {
     plugins: Vec<Box<dyn CodecPlugin>>,
     mime_map: HashMap<String, usize>,
@@ -24,7 +29,6 @@ pub struct PluginHost {
 
 impl PluginHost {
     pub fn new() -> Self { Self { plugins: Vec::new(), mime_map: HashMap::new(), loaded_libs: Vec::new() } }
-
     pub fn load(&mut self, so_path: &str) -> EngineResult<()> {
         let path = CString::new(so_path).map_err(|e| EngineError::PluginLoadError(format!("path: {}", e)))?;
         if !Path::new(so_path).exists() { return Err(EngineError::PluginLoadError("not found".into())); }
@@ -48,7 +52,6 @@ impl PluginHost {
         }
         Ok(())
     }
-
     pub fn plugin_count(&self) -> usize { self.plugins.len() }
 }
 
@@ -60,4 +63,5 @@ impl Drop for PluginHost {
         }
     }
 }
+
 unsafe impl Send for PluginHost {}
