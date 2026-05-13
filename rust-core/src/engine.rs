@@ -1,5 +1,5 @@
 use crate::decoder;
-use crate::error::{EngineError, EngineResult};
+use crate::error::EngineResult;
 use crate::plugin_host::PluginHost;
 use crate::subtitle::SubtitleManager;
 use jni::objects::GlobalRef;
