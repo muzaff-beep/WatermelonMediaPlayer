@@ -3,17 +3,15 @@
 
 package com.watermelon.player.ui.screens
 
-import android.view.Surface
-import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -29,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.watermelon.player.platform.SurfaceProvider
 import com.watermelon.player.ui.components.tvFocusBorder
 import com.watermelon.player.viewmodel.PlayerViewModel
+import android.view.TextureView
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,9 +39,9 @@ fun PlayerScreen(
     val playerState by viewModel.playerState.collectAsState()
     var showControls by remember { mutableStateOf(true) }
     var subtitleVisible by remember { mutableStateOf(false) }
+    var showSubtitleOffset by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
 
-    // Position update ticker
     LaunchedEffect(playerState.isPlaying) {
         while (playerState.isPlaying) {
             viewModel.updatePosition()
@@ -51,12 +49,10 @@ fun PlayerScreen(
         }
     }
 
-    // Load video on first composition
     LaunchedEffect(videoUri) {
         viewModel.loadVideo(videoUri)
     }
 
-    // Auto-hide controls after 3 seconds
     LaunchedEffect(showControls) {
         if (showControls && playerState.isPlaying) {
             delay(3000)
@@ -73,7 +69,6 @@ fun PlayerScreen(
             .tvFocusBorder(isFocused)
             .clickable { showControls = !showControls }
     ) {
-        // Video surface
         AndroidView(
             factory = { ctx ->
                 TextureView(ctx).apply {
@@ -84,7 +79,6 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Subtitle overlay
         if (subtitleVisible && playerState.subtitleCuesJson != "[]") {
             Box(
                 modifier = Modifier
@@ -103,7 +97,6 @@ fun PlayerScreen(
             }
         }
 
-        // Top bar (back button)
         if (showControls) {
             IconButton(
                 onClick = onBack,
@@ -120,7 +113,6 @@ fun PlayerScreen(
             }
         }
 
-        // Error message
         playerState.errorMessage?.let { error ->
             Card(
                 modifier = Modifier
@@ -136,7 +128,6 @@ fun PlayerScreen(
             }
         }
 
-        // Bottom controls
         if (showControls && playerState.playbackState != 1) {
             Column(
                 modifier = Modifier
@@ -144,7 +135,6 @@ fun PlayerScreen(
                     .padding(16.dp)
                     .navigationBarsPadding()
             ) {
-                // Progress bar
                 Slider(
                     value = if (playerState.durationUs > 0)
                         playerState.currentPositionUs.toFloat() / playerState.durationUs.toFloat()
@@ -164,7 +154,6 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Play/Pause
                     IconButton(onClick = { viewModel.togglePlayPause() }) {
                         Icon(
                             if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -173,7 +162,6 @@ fun PlayerScreen(
                             modifier = Modifier.size(48.dp)
                         )
                     }
-                    // Subtitles
                     IconButton(onClick = { subtitleVisible = !subtitleVisible }) {
                         Icon(
                             Icons.Default.Subtitles,
@@ -181,11 +169,17 @@ fun PlayerScreen(
                             tint = if (subtitleVisible) MaterialTheme.colorScheme.primary else Color.White
                         )
                     }
+                    IconButton(onClick = { showSubtitleOffset = true }) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Subtitle offset",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
         }
 
-        // Loading indicator
         if (playerState.isPreparing) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
@@ -193,9 +187,18 @@ fun PlayerScreen(
             )
         }
     }
+
+    if (showSubtitleOffset) {
+        SubtitleOffsetDialog(
+            onDismiss = { showSubtitleOffset = false },
+            onOffsetSet = { offsetMs ->
+                viewModel.setSubtitleOffset(offsetMs)
+                showSubtitleOffset = false
+            }
+        )
+    }
 }
 
-/** Parse the first active cue text from the cues JSON array. */
 private fun parseSubtitleText(cuesJson: String): String {
     return try {
         val json = org.json.JSONArray(cuesJson)
