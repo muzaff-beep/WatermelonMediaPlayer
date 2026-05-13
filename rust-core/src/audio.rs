@@ -1,14 +1,14 @@
 // rust-core/src/audio.rs
-// Android AAudio output via Oboe 0.6. Manifesto §1.2 audio path.
+// Android AAudio output via Oboe 0.6. Uses (f32, Stereo) frame type.
 
-use crate::decoder::{AudioConfig, AudioSampleFormat, DecodedAudioFrame};
+use crate::decoder::{AudioConfig, DecodedAudioFrame};
 use crate::error::EngineResult;
 use std::sync::{Mutex, OnceLock};
 
 #[cfg(target_os = "android")]
 use oboe::{
-    AudioStreamBuilder, AudioOutputCallback, DataCallbackResult,
-    PerformanceMode, SharingMode, Direction,
+    AudioOutputStreamSafe, AudioStreamBuilder, DataCallbackResult,
+    PerformanceMode, SharingMode, Direction, Mono, Stereo,
 };
 
 static AUDIO_ENGINE: OnceLock<Mutex<AudioEngine>> = OnceLock::new();
@@ -22,7 +22,7 @@ struct AudioEngine {
 
 #[cfg(target_os = "android")]
 struct AudioStreamHandle {
-    stream: Box<dyn oboe::AudioOutputStreamSafe>,
+    stream: Box<dyn AudioOutputStreamSafe<FrameType = (f32, Stereo)>>,
 }
 
 #[cfg(target_os = "android")]
@@ -119,35 +119,40 @@ pub fn queue_depth() -> usize {
 }
 
 #[cfg(target_os = "android")]
-fn create_oboe_stream(config: &AudioConfig) -> EngineResult<Box<dyn oboe::AudioOutputStreamSafe>> {
-    let channel_count = config.channels as i32;
+fn create_oboe_stream(config: &AudioConfig) -> EngineResult<Box<dyn AudioOutputStreamSafe<FrameType = (f32, Stereo)>>> {
     let sample_rate = config.sample_rate as i32;
 
     struct OboeCallback {
         engine: &'static Mutex<AudioEngine>,
     }
 
-    impl AudioOutputCallback for OboeCallback {
-        type FrameType = f32;
+    impl oboe::AudioOutputCallback for OboeCallback {
+        type FrameType = (f32, Stereo);
 
         fn on_audio_ready(
             &mut self,
-            _stream: &mut dyn oboe::AudioOutputStreamSafe,
-            audio_data: &mut [f32],
+            _stream: &mut dyn AudioOutputStreamSafe<FrameType = (f32, Stereo)>,
+            audio_data: &mut [(f32, Stereo)],
         ) -> DataCallbackResult {
             if let Ok(mut eng) = self.engine.lock() {
                 if !eng.is_playing {
-                    for s in audio_data.iter_mut() { *s = 0.0; }
+                    for s in audio_data.iter_mut() { *s = (0.0f32, Stereo::default()); }
                     return DataCallbackResult::Continue;
                 }
                 if let Some(frame) = eng.buffer_queue.first() {
                     let src: &[f32] = bytemuck::cast_slice(&frame.data);
-                    let n = audio_data.len().min(src.len());
-                    audio_data[..n].copy_from_slice(&src[..n]);
-                    for s in &mut audio_data[n..] { *s = 0.0; }
+                    let num_samples = audio_data.len().min(src.len() / 2);
+                    for i in 0..num_samples {
+                        let left = src[i * 2];
+                        let right = src[i * 2 + 1];
+                        audio_data[i] = (left, Stereo::new(right));
+                    }
+                    for s in &mut audio_data[num_samples..] {
+                        *s = (0.0f32, Stereo::default());
+                    }
                     eng.buffer_queue.remove(0);
                 } else {
-                    for s in audio_data.iter_mut() { *s = 0.0; }
+                    for s in audio_data.iter_mut() { *s = (0.0f32, Stereo::default()); }
                 }
             }
             DataCallbackResult::Continue
@@ -165,8 +170,8 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<Box<dyn oboe::AudioO
         .direction(Direction::Output)
         .performance_mode(PerformanceMode::LowLatency)
         .sharing_mode(SharingMode::Exclusive)
-        .format::<f32>()
-        .channel_count(channel_count)
+        .format::<(f32, Stereo)>()
+        .channel_count::<Stereo>()
         .sample_rate(sample_rate)
         .callback(callback)
         .open_stream()
@@ -175,7 +180,7 @@ fn create_oboe_stream(config: &AudioConfig) -> EngineResult<Box<dyn oboe::AudioO
             crate::error::EngineError::AudioInitFailed
         })?;
 
-    log::info!("Oboe stream opened: {} Hz, {} ch", sample_rate, channel_count);
+    log::info!("Oboe stream opened: {} Hz, stereo", sample_rate);
     Ok(stream)
 }
 
