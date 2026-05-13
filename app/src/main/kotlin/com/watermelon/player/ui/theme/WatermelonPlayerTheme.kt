@@ -1,7 +1,7 @@
-// app/src/main/kotlin/com/watermelon/player/ui/theme/WatermelonPlayerTheme.kt
 package com.watermelon.player.ui.theme
 
 import android.app.Activity
+import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -9,7 +9,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -19,21 +18,31 @@ import androidx.core.view.WindowCompat
 val VazirmatnFamily: FontFamily
     @Composable
     get() {
-        val assets = LocalContext.current.assets
-        return FontFamily(
-            Font("fonts/vazir.ttf", assets, FontWeight.Normal),
-            Font("fonts/vazir.ttf", assets, FontWeight.Bold)
-        )
+        return try {
+            val assets = LocalContext.current.assets
+            FontFamily(
+                Font("fonts/vazir.ttf", assets, FontWeight.Normal),
+                Font("fonts/vazir.ttf", assets, FontWeight.Bold)
+            )
+        } catch (e: Exception) {
+            Log.e("Theme", "Failed to load Vazirmatn font, falling back to default", e)
+            FontFamily.Default
+        }
     }
 
 val YekanFamily: FontFamily
     @Composable
     get() {
-        val assets = LocalContext.current.assets
-        return FontFamily(
-            Font("fonts/yekan.ttf", assets, FontWeight.Normal),
-            Font("fonts/yekan.ttf", assets, FontWeight.Bold)
-        )
+        return try {
+            val assets = LocalContext.current.assets
+            FontFamily(
+                Font("fonts/yekan.ttf", assets, FontWeight.Normal),
+                Font("fonts/yekan.ttf", assets, FontWeight.Bold)
+            )
+        } catch (e: Exception) {
+            Log.e("Theme", "Failed to load Yekan font, falling back to default", e)
+            FontFamily.Default
+        }
     }
 
 private val DarkColorScheme = darkColorScheme(
