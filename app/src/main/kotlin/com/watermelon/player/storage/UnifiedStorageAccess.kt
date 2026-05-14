@@ -101,7 +101,6 @@ class UnifiedStorageAccess(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to query directory: ${directoryUri}", e)
         }
-        Log.d(TAG, "Directory scan returned ${videos.size} videos from $directoryUri")
         return videos
     }
 
