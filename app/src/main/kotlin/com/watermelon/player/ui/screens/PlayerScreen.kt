@@ -1,3 +1,4 @@
+// app/src/main/kotlin/com/watermelon/player/ui/screens/PlayerScreen.kt
 package com.watermelon.player.ui.screens
 
 import androidx.compose.foundation.background
@@ -10,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -35,19 +37,17 @@ fun PlayerScreen(
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .setUsage(C.USAGE_MEDIA)
                     .build(),
-                true // handleAudioFocus
+                true
             )
         }
     }
 
-    // React to videoUri changes (e.g. playlist)
     LaunchedEffect(videoUri) {
         player.setMediaItem(MediaItem.fromUri(videoUri))
         player.prepare()
         player.playWhenReady = true
     }
 
-    // Pause/stop when app is backgrounded
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
