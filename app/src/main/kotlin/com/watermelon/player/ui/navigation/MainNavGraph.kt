@@ -1,6 +1,4 @@
 // app/src/main/kotlin/com/watermelon/player/ui/navigation/MainNavGraph.kt
-// Navigation graph for phone and TV. Single codebase, adaptive targets.
-
 package com.watermelon.player.ui.navigation
 
 import androidx.compose.runtime.Composable
@@ -10,6 +8,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.watermelon.player.ui.screens.*
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 object Routes {
     const val LIBRARY = "library"
@@ -17,7 +17,10 @@ object Routes {
     const val FOLDER_VISIBILITY = "folder_visibility"
     const val SETTINGS = "settings"
 
-    fun player(videoUri: String) = "player/$videoUri"
+    fun player(videoUri: String): String {
+        val encoded = URLEncoder.encode(videoUri, "UTF-8")
+        return "player/$encoded"
+    }
 }
 
 @Composable
@@ -43,7 +46,8 @@ fun MainNavGraph(navController: NavHostController) {
             route = Routes.PLAYER,
             arguments = listOf(navArgument("videoUri") { type = NavType.StringType })
         ) { backStackEntry ->
-            val videoUri = backStackEntry.arguments?.getString("videoUri") ?: return@composable
+            val encodedUri = backStackEntry.arguments?.getString("videoUri") ?: return@composable
+            val videoUri = URLDecoder.decode(encodedUri, "UTF-8")
             PlayerScreen(
                 videoUri = videoUri,
                 onBack = { navController.popBackStack() }
