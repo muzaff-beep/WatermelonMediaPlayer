@@ -60,20 +60,22 @@ kotlin {
 }
 
 dependencies {
-    // Compose BOM – updated to match Kotlin 2.3.10
-    val composeBom = platform("androidx.compose:compose-bom:2026.05.00")
-    implementation(composeBom)
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    // Use a concrete, verified Compose version that matches Kotlin 2.3.10
+    val composeVersion = "1.11.1"
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.compose.material:material-icons-extended:1.11.1")
+    implementation("androidx.compose.ui:ui:$composeVersion")
+    implementation("androidx.compose.ui:ui-tooling-preview:$composeVersion")
+    debugImplementation("androidx.compose.ui:ui-tooling:$composeVersion")
+    implementation("androidx.compose.foundation:foundation:$composeVersion")
+    implementation("androidx.compose.animation:animation:$composeVersion")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.6")
 
     // Lifecycle + ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
 
     // Room
     val roomVersion = "2.8.4"
@@ -88,6 +90,6 @@ dependencies {
     implementation("androidx.leanback:leanback:1.0.0")
 
     // Core
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.activity:activity-compose:1.11.0")
 }
