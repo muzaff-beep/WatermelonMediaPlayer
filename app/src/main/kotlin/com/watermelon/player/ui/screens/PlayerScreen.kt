@@ -1,211 +1,61 @@
-// app/src/main/kotlin/com/watermelon/player/ui/screens/PlayerScreen.kt
-// Full video player screen with controls overlay and subtitle rendering.
-
 package com.watermelon.player.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.watermelon.player.platform.SurfaceProvider
-import com.watermelon.player.ui.components.tvFocusBorder
-import com.watermelon.player.viewmodel.PlayerViewModel
-import android.view.TextureView
-import kotlinx.coroutines.delay
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     videoUri: String,
-    onBack: () -> Unit,
-    viewModel: PlayerViewModel = viewModel()
+    onBack: () -> Unit
 ) {
-    val playerState by viewModel.playerState.collectAsState()
-    var showControls by remember { mutableStateOf(true) }
-    var subtitleVisible by remember { mutableStateOf(false) }
-    var showSubtitleOffset by remember { mutableStateOf(false) }
-    var isFocused by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val player = remember {
+        ExoPlayer.Builder(context).build()
+    }
 
-    LaunchedEffect(playerState.isPlaying) {
-        while (playerState.isPlaying) {
-            viewModel.updatePosition()
-            delay(250)
+    DisposableEffect(Unit) {
+        val mediaItem = MediaItem.fromUri(videoUri)
+        player.setMediaItem(mediaItem)
+        player.prepare()
+        player.play()
+        onDispose {
+            player.release()
         }
     }
 
-    LaunchedEffect(videoUri) {
-        viewModel.loadVideo(videoUri)
-    }
-
-    LaunchedEffect(showControls) {
-        if (showControls && playerState.isPlaying) {
-            delay(3000)
-            showControls = false
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
-            .tvFocusBorder(isFocused)
-            .clickable { showControls = !showControls }
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
-                TextureView(ctx).apply {
-                    val surfaceProvider = SurfaceProvider(this)
-                    viewModel.setSurfaceProvider(surfaceProvider)
+                PlayerView(ctx).apply {
+                    this.player = player
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
-
-        if (subtitleVisible && playerState.subtitleCuesJson != "[]") {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
-            ) {
-                Text(
-                    text = parseSubtitleText(playerState.subtitleCuesJson),
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(8.dp)
-                )
-            }
-        }
-
-        if (showControls) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
-                    .statusBarsPadding()
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White
-                )
-            }
-        }
-
-        playerState.errorMessage?.let { error ->
-            Card(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-            ) {
-                Text(
-                    text = error,
-                    modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
-
-        if (showControls && playerState.playbackState != 1) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp)
-                    .navigationBarsPadding()
-            ) {
-                Slider(
-                    value = if (playerState.durationUs > 0)
-                        playerState.currentPositionUs.toFloat() / playerState.durationUs.toFloat()
-                    else 0f,
-                    onValueChange = { fraction ->
-                        val newPos = (fraction * playerState.durationUs).toLong()
-                        viewModel.seekTo(newPos)
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { viewModel.togglePlayPause() }) {
-                        Icon(
-                            if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (playerState.isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(48.dp)
-                        )
-                    }
-                    IconButton(onClick = { subtitleVisible = !subtitleVisible }) {
-                        Icon(
-                            Icons.Default.Subtitles,
-                            contentDescription = "Subtitles",
-                            tint = if (subtitleVisible) MaterialTheme.colorScheme.primary else Color.White
-                        )
-                    }
-                    IconButton(onClick = { showSubtitleOffset = true }) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "Subtitle offset",
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-        }
-
-        if (playerState.isPreparing) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = Color.White
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(androidx.compose.ui.Alignment.TopStart)
+                .padding(16.dp)
+                .statusBarsPadding()
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Back",
+                tint = Color.White
             )
         }
-    }
-
-    if (showSubtitleOffset) {
-        SubtitleOffsetDialog(
-            onDismiss = { showSubtitleOffset = false },
-            onOffsetSet = { offsetMs ->
-                viewModel.setSubtitleOffset(offsetMs)
-                showSubtitleOffset = false
-            }
-        )
-    }
-}
-
-private fun parseSubtitleText(cuesJson: String): String {
-    return try {
-        val json = org.json.JSONArray(cuesJson)
-        if (json.length() > 0) {
-            json.getJSONObject(0).getString("text")
-        } else ""
-    } catch (e: Exception) {
-        ""
     }
 }
