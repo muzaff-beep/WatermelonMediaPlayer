@@ -1,6 +1,4 @@
 // app/src/main/kotlin/com/watermelon/player/ui/screens/FolderVisibilityScreen.kt
-// Folder visibility management screen. Toggle which folders are scanned.
-
 package com.watermelon.player.ui.screens
 
 import androidx.compose.foundation.clickable
@@ -65,7 +63,12 @@ fun FolderVisibilityScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(padding.calculateTopPadding() + 8.dp, 8.dp, 8.dp, 8.dp)
+                contentPadding = PaddingValues(
+                    padding.calculateTopPadding() + 8.dp,
+                    8.dp,
+                    8.dp,
+                    8.dp
+                )
             ) {
                 items(folders, key = { it.folderUri }) { folder ->
                     FolderVisibilityItem(
