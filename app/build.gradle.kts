@@ -60,8 +60,8 @@ kotlin {
 }
 
 dependencies {
-    // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    // Compose BOM – updated to match Kotlin 2.3.10
+    val composeBom = platform("androidx.compose:compose-bom:2026.05.00")
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
@@ -75,7 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Room (2.8.4 requires minSdk 23)
+    // Room
     val roomVersion = "2.8.4"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
