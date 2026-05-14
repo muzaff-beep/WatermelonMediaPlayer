@@ -1,6 +1,4 @@
 // app/src/main/kotlin/com/watermelon/player/scan/ScanScheduler.kt
-// Schedules periodic media scans using WorkManager or AlarmManager.
-
 package com.watermelon.player.scan
 
 import android.content.BroadcastReceiver
@@ -10,10 +8,6 @@ import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 
-/**
- * Triggers media scans when the device boots or external storage is mounted.
- * Delegates actual scanning to VideoScannerWorker.
- */
 class ScanScheduler(
     private val context: Context,
     private val scannerWorker: VideoScannerWorker
@@ -21,9 +15,6 @@ class ScanScheduler(
     private val TAG = "ScanScheduler"
     private val receiver = ScanTriggerReceiver()
 
-    /**
-     * Register system broadcast receivers that trigger scans.
-     */
     fun register() {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_BOOT_COMPLETED)
@@ -39,9 +30,6 @@ class ScanScheduler(
         Log.d(TAG, "Scan triggers registered")
     }
 
-    /**
-     * Unregister broadcast receivers.
-     */
     fun unregister() {
         try {
             context.unregisterReceiver(receiver)
