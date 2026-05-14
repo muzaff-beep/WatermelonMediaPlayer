@@ -18,8 +18,8 @@ import androidx.core.view.WindowCompat
 val VazirmatnFamily: FontFamily
     @Composable
     get() {
+        val assets = LocalContext.current.assets
         return try {
-            val assets = LocalContext.current.assets
             FontFamily(
                 Font("fonts/vazir.ttf", assets, FontWeight.Normal),
                 Font("fonts/vazir.ttf", assets, FontWeight.Bold)
@@ -33,8 +33,8 @@ val VazirmatnFamily: FontFamily
 val YekanFamily: FontFamily
     @Composable
     get() {
+        val assets = LocalContext.current.assets
         return try {
-            val assets = LocalContext.current.assets
             FontFamily(
                 Font("fonts/yekan.ttf", assets, FontWeight.Normal),
                 Font("fonts/yekan.ttf", assets, FontWeight.Bold)
