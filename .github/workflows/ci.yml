@@ -48,7 +48,7 @@ jobs:
       - name: Copy APK to Pubs/ folder
         run: |
           mkdir -p Pubs
-          cp app/build/outputs/apk/debug/app-debug.apk Pubs/wmp.apk
+          cp app/build/outputs/apk/debug/app-debug.apk app/WMP_dbg.apk
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -61,7 +61,7 @@ jobs:
         run: ./gradlew assembleRelease
 
       - name: Copy release APK to Pubs/ folder
-        run: cp app/build/outputs/apk/release/app-release.apk Pubs/wmp-release.apk
+        run: cp app/build/outputs/apk/release/app-release.apk app/wmp-release.apk
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
@@ -75,8 +75,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            Pubs/wmp.apk
-            Pubs/wmp-release.apk
+            app/WMP_dbg.apk
+            app/wmp-release.apk
           draft: false
           prerelease: false
         env:
