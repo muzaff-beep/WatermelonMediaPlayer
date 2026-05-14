@@ -1,13 +1,18 @@
 package com.watermelon.player
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
 import com.watermelon.player.rust.WatermelonCore
 import com.watermelon.player.ui.navigation.MainNavGraph
@@ -21,12 +26,20 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        if (!allGranted) {
+            Log.w("MainActivity", "Some permissions were denied")
+        }
+        launchUI()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Install crash-to-file handler before any other code
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             saveCrashLog(throwable)
-            // Pass to default handler (which shows the "App stopped" dialog)
             defaultHandler?.uncaughtException(thread, throwable)
         }
 
@@ -41,6 +54,45 @@ class MainActivity : ComponentActivity() {
             saveCrashLog(e)
         }
 
+        val neededPermissions = getRequiredPermissions()
+        if (neededPermissions.isEmpty()) {
+            launchUI()
+        } else {
+            requestPermissionLauncher.launch(neededPermissions)
+        }
+    }
+
+    private fun getRequiredPermissions(): Array<String> {
+        val permissions = mutableListOf<String>()
+
+        // Storage permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        // Notification permission (required for Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        return permissions.toTypedArray()
+    }
+
+    private fun launchUI() {
         setContent {
             WatermelonPlayerTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -66,7 +118,6 @@ class MainActivity : ComponentActivity() {
             throwable.printStackTrace(writer)
             writer.flush()
             writer.close()
-            Log.e("MainActivity", "Crash log saved to ${logFile.absolutePath}")
         } catch (e: Exception) {
             Log.e("MainActivity", "Could not save crash log", e)
         }
