@@ -1,76 +1,50 @@
-// app/src/main/kotlin/com/watermelon/player/service/MediaPlaybackService.kt
+// app/src/main/kotlin/com/watermelon/player/service/PlaybackService.kt
 package com.watermelon.player.service
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import com.watermelon.player.MainActivity
-import com.watermelon.player.R
 
-class MediaPlaybackService : MediaSessionService() {
-
-    private var mediaSession: MediaSession? = null
+class PlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-
-        val mediaPlayer = Player.Builder(this).build()
-        mediaSession = MediaSession.Builder(this, mediaPlayer).build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSession
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val notification = buildNotification()
+        startForeground(NOTIFICATION_ID, notification)
+        return START_STICKY
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        mediaSession?.run {
-            player.release()
-            release()
-        }
-        mediaSession = null
+        stopForeground(true)
         super.onDestroy()
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player ?: return
-        if (player.playWhenReady) {
-            // Continue background playback
-        } else {
-            stopSelf()
-        }
-    }
-
-    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        if (startInForegroundRequired) {
-            val notification = buildNotification()
-            startForeground(NOTIFICATION_ID, notification)
-        } else {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.notify(NOTIFICATION_ID, buildNotification())
-        }
-    }
-
     private fun buildNotification(): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Watermelon Player")
-            .setContentText("Playing")
+            .setContentText("Playing in background")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
