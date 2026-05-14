@@ -1,6 +1,4 @@
 // app/src/main/kotlin/com/watermelon/player/repository/PlaylistRepository.kt
-// Playlist CRUD operations. Manifesto §3.3 frozen interface.
-
 package com.watermelon.player.repository
 
 import android.content.ContentValues
@@ -8,9 +6,6 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 data class Playlist(val id: Long, val name: String)
 data class PlaylistEntry(val playlistId: Long, val videoUri: String, val position: Int)
@@ -20,49 +15,31 @@ class PlaylistRepository(context: Context) : AutoCloseable {
     private val helper = PlaylistDatabaseHelper(context)
     private val db: SQLiteDatabase = helper.writableDatabase
 
-    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
-    val playlists: Flow<List<Playlist>> = _playlists.asStateFlow()
-
-    init {
-        refreshPlaylists()
-    }
-
-    /** Create a new playlist and return its ID. */
     suspend fun createPlaylist(name: String): Long {
         val values = ContentValues().apply {
             put("name", name)
         }
         val id = db.insertOrThrow("playlists", null, values)
-        refreshPlaylists()
         Log.d("PlaylistRepo", "Created playlist: id=$id, name=$name")
         return id
     }
 
-    /** Delete a playlist and all its entries. */
     suspend fun deletePlaylist(id: Long) {
         db.delete("playlist_entries", "playlist_id = ?", arrayOf(id.toString()))
         db.delete("playlists", "id = ?", arrayOf(id.toString()))
-        refreshPlaylists()
         Log.d("PlaylistRepo", "Deleted playlist: id=$id")
     }
 
-    /** Add a video to a playlist at the given position. */
     suspend fun addVideoToPlaylist(playlistId: Long, videoUri: String, position: Int) {
         val values = ContentValues().apply {
             put("playlist_id", playlistId)
             put("video_uri", videoUri)
             put("position", position)
         }
-        db.insertWithOnConflict(
-            "playlist_entries",
-            null,
-            values,
-            SQLiteDatabase.CONFLICT_REPLACE
-        )
+        db.insertWithOnConflict("playlist_entries", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         Log.d("PlaylistRepo", "Added to playlist $playlistId: $videoUri at $position")
     }
 
-    /** Remove a video from a playlist. */
     suspend fun removeVideoFromPlaylist(playlistId: Long, videoUri: String) {
         db.delete(
             "playlist_entries",
@@ -72,11 +49,17 @@ class PlaylistRepository(context: Context) : AutoCloseable {
         Log.d("PlaylistRepo", "Removed from playlist $playlistId: $videoUri")
     }
 
-    /** Get all playlists. */
-    suspend fun getPlaylists(): Flow<List<Playlist>> = playlists
+    fun getPlaylists(): List<Playlist> {
+        val list = mutableListOf<Playlist>()
+        db.query("playlists", arrayOf("id", "name"), null, null, null, null, "name ASC").use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(Playlist(cursor.getLong(0), cursor.getString(1)))
+            }
+        }
+        return list
+    }
 
-    /** Get entries for a specific playlist, ordered by position. */
-    suspend fun getPlaylistVideos(playlistId: Long): Flow<List<PlaylistEntry>> {
+    fun getPlaylistVideos(playlistId: Long): List<PlaylistEntry> {
         val entries = mutableListOf<PlaylistEntry>()
         val cursor = db.query(
             "playlist_entries",
@@ -98,17 +81,7 @@ class PlaylistRepository(context: Context) : AutoCloseable {
                 )
             }
         }
-        return MutableStateFlow(entries).asStateFlow()
-    }
-
-    private fun refreshPlaylists() {
-        val list = mutableListOf<Playlist>()
-        db.query("playlists", arrayOf("id", "name"), null, null, null, null, "name ASC").use { cursor ->
-            while (cursor.moveToNext()) {
-                list.add(Playlist(cursor.getLong(0), cursor.getString(1)))
-            }
-        }
-        _playlists.value = list
+        return entries
     }
 
     override fun close() {
