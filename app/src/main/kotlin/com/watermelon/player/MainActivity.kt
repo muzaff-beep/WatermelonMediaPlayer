@@ -14,7 +14,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
-import com.watermelon.player.rust.WatermelonCore
 import com.watermelon.player.ui.navigation.MainNavGraph
 import com.watermelon.player.ui.theme.WatermelonPlayerTheme
 import java.io.File
@@ -45,15 +44,6 @@ class MainActivity : ComponentActivity() {
 
         super.onCreate(savedInstanceState)
 
-        try {
-            val pluginsDir = File(filesDir, "plugins")
-            pluginsDir.mkdirs()
-            WatermelonCore.init(pluginsDir)
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Engine init failed", e)
-            saveCrashLog(e)
-        }
-
         val neededPermissions = getRequiredPermissions()
         if (neededPermissions.isEmpty()) {
             launchUI()
@@ -65,7 +55,6 @@ class MainActivity : ComponentActivity() {
     private fun getRequiredPermissions(): Array<String> {
         val permissions = mutableListOf<String>()
 
-        // Storage permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO)
                 != PackageManager.PERMISSION_GRANTED
@@ -77,15 +66,6 @@ class MainActivity : ComponentActivity() {
                 != PackageManager.PERMISSION_GRANTED
             ) {
                 permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }
-
-        // Notification permission (required for Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
@@ -101,11 +81,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        WatermelonCore.destroy()
-        super.onDestroy()
     }
 
     private fun saveCrashLog(throwable: Throwable) {
