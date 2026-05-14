@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "com.watermelon.player"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.watermelon.player"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
 
