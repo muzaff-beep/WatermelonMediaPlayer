@@ -13,7 +13,7 @@ android {
 
     defaultConfig {
         applicationId = "com.watermelon.player"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
@@ -75,7 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Room (upgraded to 2.8.4 for KSP2 compatibility)
+    // Room (2.8.4 requires minSdk 23)
     val roomVersion = "2.8.4"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
