@@ -24,6 +24,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 platforms;android-34 build-tools;35.0.0 build-tools;34.0.0 ndk;27.3.13750724'
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -72,7 +77,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stash any local changes and pull latest
           git stash push --include-untracked -m "auto-stash" || true
           git pull --rebase origin main || true
           git stash pop || true
