@@ -49,6 +49,20 @@ jobs:
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk app/app-debug.apk
 
+      - name: Commit and push debug APK (main branch pushes only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash push --include-untracked -m "auto-stash" || true
+          git pull --rebase origin main || true
+          git stash pop || true
+          git add app/app-debug.apk
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-commit debug APK [skip ci]"
+            git push
+          fi
+
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -62,10 +76,24 @@ jobs:
       - name: Copy release APK to app folder
         run: cp app/build/outputs/apk/release/app-release.apk app/app-release.apk
 
+      - name: Commit and push release APK (main branch pushes only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash push --include-untracked -m "auto-stash" || true
+          git pull --rebase origin main || true
+          git stash pop || true
+          git add app/app-release.apk
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-commit release APK [skip ci]"
+            git push
+          fi
+
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release.apk
+          name: wmp-release
           path: app/app-release.apk
           retention-days: 30
 
