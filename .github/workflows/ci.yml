@@ -1,12 +1,15 @@
 name: Watermelon CI
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+
 env:
   CARGO_TERM_COLOR: always
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -14,28 +17,34 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-- name: Setup Java
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-- name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-- name: Install Android SDK components
+
+      - name: Install Android SDK Platform 35
         run: |
-          sdkmanager \
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;27.2.12479018"
-- name: Grant execute permission for gradlew
+            "build-tools;35.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-- name: Install Rust
+
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
-- name: Install cargo-ndk
+
+      - name: Install cargo-ndk
         run: cargo install cargo-ndk
-- name: Cache Gradle packages
+
+      - name: Cache Gradle packages
         uses: actions/cache@v4
         with:
           path: |
@@ -43,62 +52,72 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: ${{ runner.os }}-gradle-
-- name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            rust-core/target
-          key: ${{ runner.os }}-rust-${{ hashFiles('rust-core/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-rust-
-- name: Build Rust core for Android
+
+      - name: Locate Android NDK
+        id: ndk
+        run: |
+          NDK_PATH=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK_PATH" ]; then
+            echo "No NDK found; installing default NDK"
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
+            NDK_PATH=$(ls -d $ANDROID_HOME/ndk/* | sort -V | tail -1)
+          fi
+          echo "Found NDK at: $NDK_PATH"
+          echo "ndk_path=$NDK_PATH" >> $GITHUB_OUTPUT
+
+      - name: Build Rust core for Android
         working-directory: rust-core
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-          cargo ndk \
-            -t arm64-v8a \
-            -t armeabi-v7a \
-            -o ../app/src/main/jniLibs \
-            build --release -p watermelon-core
-- name: Build debug APK
+          export ANDROID_NDK_HOME="${{ steps.ndk.outputs.ndk_path }}"
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o ../app/src/main/jniLibs build --release -p watermelon-core
+
+      - name: Build debug APK
         run: ./gradlew assembleDebug
-- name: Upload debug APK artifact
+
+      - name: Copy APK to Pubs/ folder
+        run: |
+          mkdir -p Pubs
+          cp app/build/outputs/apk/debug/app-debug.apk Pubs/wmp.apk
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wmp-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-- name: Build and sign release APK
+          name: wmp-debug
+          path: Pubs/wmp.apk
+
+      - name: Build release APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
+          if [ -n "$KEYSTORE_BASE64" ] && [ "$KEYSTORE_BASE64" != "" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
             export KEYSTORE_PATH="$(pwd)/keystore.jks"
             ./gradlew assembleRelease
-            echo "RELEASE_BUILT=true" >> $GITHUB_ENV
+            mkdir -p Pubs
+            cp app/build/outputs/apk/release/app-release.apk Pubs/wmp-release.apk
+            echo "KEYSTORE_EXISTS=true" >> $GITHUB_ENV
           else
-            echo "No keystore configured. Skipping release build."
-            echo "RELEASE_BUILT=false" >> $GITHUB_ENV
+            echo "No keystore secrets configured. Skipping release APK build."
+            echo "KEYSTORE_EXISTS=false" >> $GITHUB_ENV
           fi
-- name: Upload release APK artifact
-        if: env.RELEASE_BUILT == 'true'
+
+      - name: Upload release APK artifact
+        if: env.KEYSTORE_EXISTS == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: wmp-release-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-release.apk
-          retention-days: 30
-- name: Create GitHub Release
+          name: wmp-release
+          path: Pubs/wmp-release.apk
+
+      - name: Create GitHub Release and upload APKs (only on tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+            Pubs/wmp.apk
+            Pubs/wmp-release.apk
           draft: false
           prerelease: false
         env:
