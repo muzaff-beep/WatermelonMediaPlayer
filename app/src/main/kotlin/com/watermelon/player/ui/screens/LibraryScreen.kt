@@ -1,18 +1,19 @@
-// app/src/main/kotlin/com/watermelon/player/ui/screens/LibraryScreen.kt
+// LibraryScreen.kt — Part 1 of 2
+// Folder grouping, sticky headers, grid/list toggle, sort menu, search bar.
+// Imports and scaffolding.
+
 package com.watermelon.player.ui.screens
 
-import android.media.ThumbnailUtils
-import android.provider.MediaStore
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,7 +25,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.watermelon.player.database.VideoEntity
+import com.watermelon.player.util.ThumbnailProvider
 import com.watermelon.player.viewmodel.LibraryViewModel
+import com.watermelon.player.viewmodel.SortMode
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,33 +38,87 @@ fun LibraryScreen(
     onSettings: () -> Unit,
     viewModel: LibraryViewModel = viewModel()
 ) {
-    val videos by viewModel.videos.collectAsState()
+    val allVideos by viewModel.videos.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val scanProgress by viewModel.scanProgress.collectAsState()
+    val sortMode by viewModel.sortMode.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val isGridView by viewModel.isGridView.collectAsState()
+    val gridColumns by viewModel.gridColumns.collectAsState()
+    var showSearch by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
+    var showDensityMenu by remember { mutableStateOf(false) }
+
+    val filteredVideos = remember(allVideos, searchQuery) {
+        if (searchQuery.isBlank()) allVideos
+        else allVideos.filter { it.displayName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val groupedVideos = remember(filteredVideos) {
+        filteredVideos.groupBy { File(it.uri).parent ?: "Unknown" }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Watermelon") },
-                actions = {
-                    IconButton(onClick = onFolderVisibility) {
-                        Icon(Icons.Default.Folder, contentDescription = "Folder visibility")
-                    }
-                    IconButton(onClick = { viewModel.refresh() }) {
-                        if (isScanning) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            Column {
+                TopAppBar(
+                    title = { Text("Watermelon") },
+                    actions = {
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        IconButton(onClick = { showDensityMenu = true }) {
+                            Icon(Icons.Default.GridView, contentDescription = "Layout density")
+                        }
+                        IconButton(onClick = { viewModel.toggleGridList() }) {
+                            Icon(
+                                if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = "Toggle layout"
+                            )
+                        }
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort")
+                        }
+                        IconButton(onClick = onFolderVisibility) {
+                            Icon(Icons.Default.Folder, contentDescription = "Folder visibility")
+                        }
+                        IconButton(onClick = { viewModel.refresh() }) {
+                            if (isScanning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                            }
+                        }
+                        IconButton(onClick = onSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
+                )
+                if (showSearch) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("Search videos...") },
+                        singleLine = true,
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear")
+                                }
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
     ) { padding ->
-        if (isScanning && videos.isEmpty()) {
+        if (isScanning && allVideos.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
@@ -78,118 +135,140 @@ fun LibraryScreen(
                     }
                 }
             }
-        } else if (videos.isEmpty()) {
+        } else if (filteredVideos.isEmpty() && !isScanning) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No videos found", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (searchQuery.isNotBlank()) "No videos match \"$searchQuery\""
+                    else "No videos found",
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         } else {
-            val groupedVideos = remember(videos) {
-                videos.groupBy { File(it.uri).parent ?: "Unknown" }
-            }
-
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    padding.calculateTopPadding() + 8.dp,
-                    8.dp,
-                    8.dp,
-                    8.dp
-                ),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                groupedVideos.forEach { (folderName, videoList) ->
-                    item(key = "header_$folderName") {
-                        Text(
-                            text = folderName,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
-                        )
-                    }
-                    items(
-                        items = videoList,
-                        key = { video -> video.id }
-                    ) { video ->
+            if (isGridView) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumns),
+                    contentPadding = PaddingValues(
+                        padding.calculateTopPadding() + 8.dp,
+                        8.dp,
+                        8.dp,
+                        8.dp
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(filteredVideos, key = { video -> video.id }) { video ->
                         VideoGridItem(
                             video = video,
                             onClick = { onVideoSelected(video.uri) }
                         )
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun VideoGridItem(video: VideoEntity, onClick: () -> Unit) {
-    var thumbnail by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    val context = LocalContext.current
-
-    LaunchedEffect(video.id) {
-        try {
-            thumbnail = ThumbnailUtils.createVideoThumbnail(
-                video.uri.substringAfterLast("/"),
-                MediaStore.Video.Thumbnails.MINI_KIND
-            )
-        } catch (_: Exception) {}
-    }
-
-    Card(
-        modifier = Modifier
-            .padding(4.dp)
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        Column {
-            if (thumbnail != null) {
-                Image(
-                    bitmap = thumbnail!!.asImageBitmap(),
-                    contentDescription = video.displayName,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    contentScale = ContentScale.Crop
-                )
             } else {
-                Icon(
-                    Icons.Default.Videocam,
-                    contentDescription = "Video",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Column(modifier = Modifier.padding(8.dp)) {
-                Text(
-                    text = video.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = formatDuration(video.durationMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // List mode with folder grouping
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        padding.calculateTopPadding() + 8.dp,
+                        8.dp,
+                        8.dp,
+                        8.dp
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    groupedVideos.forEach { (folderName, videoList) ->
+                        item(key = "header_$folderName") {
+                            FolderHeader(
+                                folderName = folderName,
+                                count = videoList.size
+                            )
+                        }
+                        items(
+                            items = videoList,
+                            key = { video -> video.id }
+                        ) { video ->
+                            VideoListItem(
+                                video = video,
+                                onClick = { onVideoSelected(video.uri) }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
-}
 
-private fun formatDuration(ms: Long): String {
-    if (ms <= 0) return "--:--"
-    val totalSec = ms / 1000
-    val hours = totalSec / 3600
-    val minutes = (totalSec % 3600) / 60
-    val seconds = totalSec % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%d:%02d".format(minutes, seconds)
+    // Sort menu
+    DropdownMenu(
+        expanded = showSortMenu,
+        onDismissRequest = { showSortMenu = false }
+    ) {
+        DropdownMenuItem(
+            text = { Text("Name") },
+            onClick = {
+                viewModel.setSortMode(SortMode.NAME)
+                showSortMenu = false
+            },
+            leadingIcon = {
+                if (sortMode == SortMode.NAME) Icon(Icons.Default.Check, null)
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Date") },
+            onClick = {
+                viewModel.setSortMode(SortMode.DATE)
+                showSortMenu = false
+            },
+            leadingIcon = {
+                if (sortMode == SortMode.DATE) Icon(Icons.Default.Check, null)
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Size") },
+            onClick = {
+                viewModel.setSortMode(SortMode.SIZE)
+                showSortMenu = false
+            },
+            leadingIcon = {
+                if (sortMode == SortMode.SIZE) Icon(Icons.Default.Check, null)
+            }
+        )
+    }
+
+    // Density menu
+    DropdownMenu(
+        expanded = showDensityMenu,
+        onDismissRequest = { showDensityMenu = false }
+    ) {
+        DropdownMenuItem(
+            text = { Text("Compact (3 columns)") },
+            onClick = {
+                viewModel.setGridColumns(3)
+                showDensityMenu = false
+            },
+            leadingIcon = {
+                if (gridColumns == 3) Icon(Icons.Default.Check, null)
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Normal (2 columns)") },
+            onClick = {
+                viewModel.setGridColumns(2)
+                showDensityMenu = false
+            },
+            leadingIcon = {
+                if (gridColumns == 2) Icon(Icons.Default.Check, null)
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Comfortable (1 column)") },
+            onClick = {
+                viewModel.setGridColumns(1)
+                showDensityMenu = false
+            },
+            leadingIcon = {
+                if (gridColumns == 1) Icon(Icons.Default.Check, null)
+            }
+        )
     }
 }
