@@ -1,4 +1,3 @@
-// app/src/main/kotlin/com/watermelon/player/viewmodel/LibraryViewModel.kt
 package com.watermelon.player.viewmodel
 
 import android.app.Application
@@ -22,6 +21,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+enum class SortMode { NAME, DATE, SIZE }
+
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = MediaDatabase(application)
@@ -42,6 +43,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _scanProgress = MutableStateFlow(Pair(0, 0))
     val scanProgress: StateFlow<Pair<Int, Int>> = _scanProgress.asStateFlow()
 
+    private val _sortMode = MutableStateFlow(SortMode.DATE)
+    val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _isGridView = MutableStateFlow(true)
+    val isGridView: StateFlow<Boolean> = _isGridView.asStateFlow()
+
+    private val _gridColumns = MutableStateFlow(2)
+    val gridColumns: StateFlow<Int> = _gridColumns.asStateFlow()
+
     init {
         scanner.setOnProgress { scanned, total ->
             _scanProgress.value = Pair(scanned, total)
@@ -49,7 +62,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         scanner.setOnComplete { total ->
             _isScanning.value = false
             _scanProgress.value = Pair(total, total)
-            _videos.value = repository.getVisibleVideos()
+            _videos.value = getSortedVideos(repository.getVisibleVideos())
         }
         startScan()
     }
@@ -74,6 +87,31 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun refresh() {
         startScan()
+    }
+
+    fun setSortMode(mode: SortMode) {
+        _sortMode.value = mode
+        _videos.value = getSortedVideos(repository.getVisibleVideos())
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun toggleGridList() {
+        _isGridView.value = !_isGridView.value
+    }
+
+    fun setGridColumns(columns: Int) {
+        _gridColumns.value = columns
+    }
+
+    private fun getSortedVideos(list: List<VideoEntity>): List<VideoEntity> {
+        return when (_sortMode.value) {
+            SortMode.NAME -> list.sortedBy { it.displayName.lowercase() }
+            SortMode.DATE -> list.sortedByDescending { it.dateAdded }
+            SortMode.SIZE -> list.sortedByDescending { it.sizeBytes }
+        }
     }
 
     override fun onCleared() {
