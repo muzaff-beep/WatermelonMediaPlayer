@@ -1,15 +1,15 @@
 // app/src/main/kotlin/com/watermelon/player/ui/screens/PlayerScreen.kt
 package com.watermelon.player.ui.screens
 
+import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Environment
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -63,6 +63,7 @@ fun PlayerScreen(
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var availableSubtitles by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedSubtitle by remember { mutableStateOf<String?>(null) }
+    var playerViewRef by remember { mutableStateOf<Any?>(null) }
 
     LaunchedEffect(videoUri) {
         player.setMediaItem(MediaItem.fromUri(videoUri))
@@ -136,9 +137,25 @@ fun PlayerScreen(
         } catch (_: Exception) {}
     }
 
-    var playerViewRef by remember { mutableStateOf<Any?>(null) }
+    fun enterPiP() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val activity = context as? Activity ?: return
+            if (activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                try {
+                    activity.enterPictureInPictureMode(
+                        android.app.PictureInPictureParams.Builder().build()
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable { showControls = !showControls }
+    ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).also {
@@ -212,7 +229,7 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = {
-                        player.seekTo(player.currentPosition - 10_000)
+                        player.seekTo(maxOf(0, player.currentPosition - 10_000))
                     }) {
                         Icon(AppIcons.rewind, contentDescription = "Rewind", tint = Color.White)
                     }
@@ -233,7 +250,7 @@ fun PlayerScreen(
                         )
                     }
                     IconButton(onClick = {
-                        player.seekTo(player.currentPosition + 10_000)
+                        player.seekTo(minOf(player.duration, player.currentPosition + 10_000))
                     }) {
                         Icon(AppIcons.fastForward, contentDescription = "Fast forward", tint = Color.White)
                     }
@@ -249,6 +266,9 @@ fun PlayerScreen(
                             contentDescription = "Subtitles",
                             tint = Color.White
                         )
+                    }
+                    IconButton(onClick = { enterPiP() }) {
+                        Icon(AppIcons.fullscreenExit, contentDescription = "PiP", tint = Color.White)
                     }
                 }
                 AnimatedVisibility(visible = showVolumeSlider) {
@@ -271,7 +291,6 @@ fun PlayerScreen(
         }
     }
 
-    // Subtitle menu
     if (showSubtitleMenu) {
         AlertDialog(
             onDismissRequest = { showSubtitleMenu = false },
