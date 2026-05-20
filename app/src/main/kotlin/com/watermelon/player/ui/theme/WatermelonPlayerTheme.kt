@@ -1,7 +1,6 @@
 package com.watermelon.player.ui.theme
 
 import android.app.Activity
-import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -9,6 +8,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -25,7 +25,6 @@ val VazirmatnFamily: FontFamily
                 Font("fonts/vazir.ttf", assets, FontWeight.Bold)
             )
         } catch (e: Exception) {
-            Log.e("Theme", "Failed to load Vazirmatn font, falling back to default", e)
             FontFamily.Default
         }
     }
@@ -40,7 +39,6 @@ val YekanFamily: FontFamily
                 Font("fonts/yekan.ttf", assets, FontWeight.Bold)
             )
         } catch (e: Exception) {
-            Log.e("Theme", "Failed to load Yekan font, falling back to default", e)
             FontFamily.Default
         }
     }
@@ -81,10 +79,14 @@ fun WatermelonPlayerTheme(
 
     SideEffect {
         val window = (context as? Activity)?.window ?: return@SideEffect
-        window.statusBarColor = colorScheme.background.toArgb()
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = !darkTheme
         window.decorView.layoutDirection = if (isPersian) android.view.View.LAYOUT_DIRECTION_RTL
         else android.view.View.LAYOUT_DIRECTION_LTR
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkTheme
+        }
+        window.statusBarColor = Color.Transparent.toArgb()
+        window.navigationBarColor = Color.Transparent.toArgb()
     }
 
     MaterialTheme(
