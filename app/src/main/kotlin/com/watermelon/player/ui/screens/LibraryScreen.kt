@@ -1,6 +1,5 @@
-// LibraryScreen.kt — Part 1 of 2
-// Folder grouping, sticky headers, grid/list toggle, sort menu, search bar.
-// Imports and scaffolding.
+// app/src/main/kotlin/com/watermelon/player/ui/screens/LibraryScreen.kt
+// Part 1 of 2 — Main screen logic. Part 2 contains helper composables.
 
 package com.watermelon.player.ui.screens
 
@@ -166,7 +165,6 @@ fun LibraryScreen(
                     }
                 }
             } else {
-                // List mode with folder grouping
                 LazyColumn(
                     contentPadding = PaddingValues(
                         padding.calculateTopPadding() + 8.dp,
