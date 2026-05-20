@@ -1,85 +1,103 @@
-// app/src/main/kotlin/com/watermelon/player/ui/screens/PlayerScreen.kt
+// app/src/main/kotlin/com/watermelon/player/ui/screens/SettingsScreen.kt
 package com.watermelon.player.ui.screens
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
+import com.watermelon.player.ui.theme.AppIcons
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(
-    videoUri: String,
-    onBack: () -> Unit
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+fun SettingsScreen(onBack: () -> Unit) {
+    var showAbout by remember { mutableStateOf(false) }
 
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setAudioAttributes(
-                androidx.media3.common.AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                true
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(AppIcons.back, contentDescription = "Back")
+                    }
+                }
             )
         }
-    }
-
-    LaunchedEffect(videoUri) {
-        player.setMediaItem(MediaItem.fromUri(videoUri))
-        player.prepare()
-        player.playWhenReady = true
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE -> player.pause()
-                Lifecycle.Event.ON_STOP -> player.playWhenReady = false
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            player.release()
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
-            modifier = Modifier.fillMaxSize()
-        )
-        IconButton(
-            onClick = onBack,
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-                .statusBarsPadding()
+                .fillMaxSize()
+                .padding(padding)
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = Color.White
+            SettingsItem(
+                title = "About Watermelon",
+                subtitle = "Version 0.1.0",
+                onClick = { showAbout = true }
+            )
+            SettingsItem(
+                title = "Codec plugins",
+                subtitle = "Manage external codec plugins",
+                onClick = { /* Navigate to plugin management */ }
+            )
+            SettingsItem(
+                title = "Storage",
+                subtitle = "Media scan preferences",
+                onClick = { /* Navigate to storage settings */ }
             )
         }
+    }
+
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text("About Watermelon") },
+            text = {
+                Column {
+                    Text("Watermelon MediaPlayer")
+                    Text("Version 0.1.0", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("A hybrid Kotlin/Rust media player for Android.")
+                    Text("Built with ExoPlayer, Jetpack Compose, and custom icon set.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAbout = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun SettingsItem(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            AppIcons.next,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
